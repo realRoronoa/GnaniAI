@@ -1,0 +1,86 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Environment and Secret configuration files
+.env
+.env.*
+!.env.example
+*.env
+*.env.*
+
+# Secrets, Credentials, Tokens & Keys
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+*.pub
+*id_rsa*
+*id_ed25519*
+secrets/
+credentials.json
+client_secret*.json
+service-account*.json
+*.token
+*.jwt
+
+# Healthcare Patient Data & Clinical Assets (Strict Zero-Leakage)
+*.wav
+*.mp3
+*.webm
+*.ogg
+*.m4a
+*.flac
+*.aac
+*.pdf
+*.zip
+*.tar
+*.gz
+*.dump
+*.sql
+*.bak
+
+# Testing, Coverage and Cache
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Local databases, storage & object cache
+*.db
+*.sqlite
+*.sqlite3
+.local-storage/
+storage/
+temp/
+tmp/
+audio_cache/
+pdf_cache/
+
+# Logs
+*.log
+logs/
+celerybeat-schedule
+celerybeat.pid
+
+# IDE and OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+

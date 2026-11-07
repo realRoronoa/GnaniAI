@@ -1,0 +1,108 @@
+# ==========================================
+# ArogyaScribe Monorepo .gitignore
+# Strict Security & Zero-Leakage Policy
+# ==========================================
+
+# 1. Environment & Secret Configuration Files (NEVER COMMIT)
+.env
+.env.*
+*.env
+*.env.*
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+
+# 2. Cryptographic Keys, Certificates & Tokens
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+*.pub
+*id_rsa*
+*id_ed25519*
+secrets/
+credentials.json
+client_secret*.json
+service-account*.json
+*.token
+*.jwt
+
+# 3. Python Virtual Environments & Caches
+backend/.venv/
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*/__pycache__/
+*/*/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# 4. Node.js & Frontend Build Outputs
+frontend/node_modules/
+node_modules/
+frontend/dist/
+dist/
+dist-ssr/
+build/
+.next/
+out/
+.vite/
+
+# 5. Local Databases & Storage Caches
+*.db
+*.sqlite
+*.sqlite3
+storage/
+backend/storage/
+.local-storage/
+audio_cache/
+pdf_cache/
+temp/
+tmp/
+
+# 6. Healthcare Media & Generated Documents (Strict Patient Privacy)
+*.wav
+*.mp3
+*.webm
+*.ogg
+*.m4a
+*.flac
+*.aac
+*.pdf
+*.zip
+*.tar
+*.gz
+*.dump
+*.sql
+*.bak
+
+# 7. Logs & Celery Runtime Files
+*.log
+logs/
+backend/logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+celerybeat-schedule
+celerybeat.pid
+
+# 8. OS & Editor Artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini

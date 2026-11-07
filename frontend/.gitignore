@@ -1,0 +1,64 @@
+# Node modules and build output
+node_modules/
+dist/
+dist-ssr/
+build/
+.next/
+out/
+
+# Environment and Secret configuration files
+.env
+.env.*
+!.env.example
+*.env
+*.env.*
+
+# Secrets, Credentials, Tokens & Keys
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+*.pub
+*id_rsa*
+*id_ed25519*
+secrets/
+credentials.json
+client_secret*.json
+*.token
+*.jwt
+
+# Healthcare Patient Data & Clinical Assets
+*.wav
+*.mp3
+*.webm
+*.ogg
+*.m4a
+*.pdf
+*.zip
+*.tar
+*.gz
+*.dump
+*.sql
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+logs/
+
+# Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
+
+
