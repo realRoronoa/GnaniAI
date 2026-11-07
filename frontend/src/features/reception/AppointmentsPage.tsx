@@ -87,12 +87,21 @@ export const AppointmentsPage: React.FC = () => {
     setError(null);
 
     try {
+      let scheduledIso: string = new Date().toISOString();
+      if (appType === 'SCHEDULED' && scheduledTime) {
+        try {
+          scheduledIso = new Date(`${appDate}T${scheduledTime}:00`).toISOString();
+        } catch {
+          scheduledIso = new Date().toISOString();
+        }
+      }
+
       await api.post('/appointments', {
         patient_id: selectedPatientId,
         doctor_user_id: selectedDoctorId || null,
         location_id: selectedBranchId || null,
         appointment_date: appDate,
-        scheduled_time: appType === 'SCHEDULED' ? scheduledTime : null,
+        scheduled_time: scheduledIso,
         appointment_type: appType,
         reason_for_visit: reason || null,
         administrative_notes: adminNotes || null,

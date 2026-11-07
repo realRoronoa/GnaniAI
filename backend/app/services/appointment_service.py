@@ -64,12 +64,22 @@ class AppointmentService:
             )
 
         # 3. Validate Location
-        loc = db.get(OrganizationLocation, data.location_id)
+        loc = None
+        if data.location_id:
+            loc = db.get(OrganizationLocation, data.location_id)
         if not loc or loc.organization_id != organization_id:
+            loc = db.execute(
+                select(OrganizationLocation).where(
+                    OrganizationLocation.organization_id == organization_id,
+                    OrganizationLocation.is_active == True,
+                ).limit(1)
+            ).scalar_one_or_none()
+        if not loc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid location specified.",
+                detail="No clinic branch found for this organization.",
             )
+        resolved_location_id = loc.id
 
         # 4. Calculate queue position for (organization, doctor, appointment_date)
         current_max = db.execute(
@@ -87,16 +97,19 @@ class AppointmentService:
         )
 
         now = datetime.now(timezone.utc)
+        resolved_scheduled_time = data.scheduled_time or now
+        if resolved_scheduled_time.tzinfo is None:
+            resolved_scheduled_time = resolved_scheduled_time.replace(tzinfo=timezone.utc)
         arrived_at = now if enum_val(initial_status) in ("ARRIVED", "WAITING") else None
 
         appointment = Appointment(
             organization_id=organization_id,
-            location_id=data.location_id,
+            location_id=resolved_location_id,
             patient_id=data.patient_id,
             doctor_user_id=data.doctor_user_id,
             created_by_user_id=created_by_user_id,
             appointment_date=data.appointment_date,
-            scheduled_time=data.scheduled_time,
+            scheduled_time=resolved_scheduled_time,
             queue_position=queue_pos,
             appointment_type=data.appointment_type,
             status=initial_status,

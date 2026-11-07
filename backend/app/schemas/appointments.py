@@ -1,6 +1,7 @@
 from datetime import date, datetime
+from typing import Any
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import AppointmentStatus, AppointmentType
 
@@ -8,13 +9,38 @@ from app.models.enums import AppointmentStatus, AppointmentType
 class AppointmentCreate(BaseModel):
     patient_id: UUID
     doctor_user_id: UUID
-    location_id: UUID
+    location_id: UUID | None = None
     appointment_date: date
-    scheduled_time: datetime
+    scheduled_time: datetime | None = None
     appointment_type: AppointmentType = AppointmentType.SCHEDULED
     reason_for_visit: str | None = None
     administrative_notes: str | None = None
     initial_status: AppointmentStatus | None = None  # e.g., ARRIVED or WAITING for walk-ins
+
+    @field_validator("scheduled_time", mode="before")
+    @classmethod
+    def parse_scheduled_time(cls, v: Any) -> Any:
+        if not v:
+            return None
+        if isinstance(v, str):
+            v_str = v.strip()
+            if not v_str:
+                return None
+            if len(v_str) <= 8 and ":" in v_str:
+                try:
+                    parts = [int(p) for p in v_str.split(":")]
+                    now = datetime.now()
+                    if len(parts) == 2:
+                        return datetime(now.year, now.month, now.day, parts[0], parts[1])
+                    elif len(parts) == 3:
+                        return datetime(now.year, now.month, now.day, parts[0], parts[1], parts[2])
+                except Exception:
+                    pass
+            try:
+                return datetime.fromisoformat(v_str.replace("Z", "+00:00"))
+            except Exception:
+                pass
+        return v
 
 
 class AppointmentStatusUpdate(BaseModel):
