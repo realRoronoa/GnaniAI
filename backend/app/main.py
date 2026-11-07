@@ -24,10 +24,13 @@ from app.db.session import engine
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Startup and shutdown events handler."""
-    # When running SQLite (e.g., local dev without Docker), auto-create tables on boot
-    if settings.database_url.startswith("sqlite"):
-        Base.metadata.create_all(bind=engine)
+    """Startup and shutdown events handler: auto-provisions schema and initial seed."""
+    Base.metadata.create_all(bind=engine)
+    try:
+        from scripts.seed_demo import seed
+        seed()
+    except Exception as e:
+        print(f"Startup database initialization notice: {e}")
     yield
 
 
