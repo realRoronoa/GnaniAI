@@ -69,10 +69,15 @@ class DoctorDashboardResponse(BaseModel):
     doctor_name: str
     specialization: str
     consultation_room: str | None
+    today_date: str = ""
     target_date: date
     current_patient: DoctorDashboardQueueItem | None = None
+    active_consultation: dict[str, Any] | None = None
+    waiting_queue: list[AppointmentResponse] = []
     waiting_patients: list[DoctorDashboardQueueItem] = []
+    upcoming_appointments: list[AppointmentResponse] = []
     upcoming_patients: list[DoctorDashboardQueueItem] = []
+    completed_today_count: int = 0
     completed_patients: list[DoctorDashboardQueueItem] = []
     reports_pending_approval: list[dict[str, Any]] = []
 

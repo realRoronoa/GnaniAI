@@ -31,7 +31,19 @@ export const DoctorDashboardPage: React.FC = () => {
     setIsLoading(true);
     try {
       const response = await api.get('/doctor/dashboard');
-      setDashboard(response.data);
+      const data = response.data;
+      if (data) {
+        if (!data.waiting_queue && Array.isArray(data.waiting_patients)) {
+          data.waiting_queue = data.waiting_patients.map((item: any) => item.appointment || item);
+        }
+        if (!data.upcoming_appointments && Array.isArray(data.upcoming_patients)) {
+          data.upcoming_appointments = data.upcoming_patients.map((item: any) => item.appointment || item);
+        }
+        if (data.completed_today_count === undefined && Array.isArray(data.completed_patients)) {
+          data.completed_today_count = data.completed_patients.length;
+        }
+      }
+      setDashboard(data);
     } catch (err) {
       console.error('Failed to load doctor dashboard:', err);
     } finally {

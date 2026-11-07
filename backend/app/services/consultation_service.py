@@ -44,16 +44,13 @@ class ConsultationService:
             select(DoctorProfile).where(DoctorProfile.user_id == doctor_user_id)
         ).scalar_one_or_none()
 
-        # Fetch today's appointments for this doctor + any patient actively waiting/arrived
+        # Fetch all appointments for this doctor in this organization (excluding cancelled)
         stmt = (
             select(Appointment)
             .where(
                 Appointment.organization_id == organization_id,
                 Appointment.doctor_user_id == doctor_user_id,
-                or_(
-                    Appointment.appointment_date == day,
-                    Appointment.status.in_([AppointmentStatus.WAITING, AppointmentStatus.ARRIVED, AppointmentStatus.IN_CONSULTATION]),
-                ),
+                Appointment.status != AppointmentStatus.CANCELLED,
             )
             .order_by(Appointment.queue_position.asc(), Appointment.scheduled_time.asc())
         )
@@ -118,14 +115,26 @@ class ConsultationService:
             )
 
             status_str = enum_val(app.status)
-            if status_str == "IN_PROGRESS" and not current_item:
+            if status_str in ("IN_PROGRESS", "IN_CONSULTATION") and not current_item:
                 current_item = item
-            elif status_str in ("WAITING", "ARRIVED"):
+            elif status_str in ("WAITING", "ARRIVED", "SCHEDULED", "CONFIRMED"):
                 waiting_list.append(item)
-            elif status_str in ("SCHEDULED", "CONFIRMED"):
-                upcoming_list.append(item)
+                if status_str in ("SCHEDULED", "CONFIRMED"):
+                    upcoming_list.append(item)
             elif status_str == "COMPLETED":
                 completed_list.append(item)
+
+        # Active consultation summary
+        active_consultation_dict = None
+        if current_item and current_item.consultation_id:
+            active_consultation_dict = {
+                "id": str(current_item.consultation_id),
+                "patient_id": str(current_item.appointment.patient_id),
+                "patient_name": current_item.appointment.patient.full_name if current_item.appointment.patient else "Patient",
+                "patient_identifier": current_item.appointment.patient.patient_identifier if current_item.appointment.patient else "",
+                "started_at": current_item.appointment.started_at.isoformat() if current_item.appointment.started_at else datetime.now(timezone.utc).isoformat(),
+                "status": enum_val(current_item.appointment.status),
+            }
 
         # Pending reports awaiting approval
         pending_reports_stmt = (
@@ -155,10 +164,15 @@ class ConsultationService:
             doctor_name=doc_user.full_name,
             specialization=doc_profile.specialization if doc_profile else "General Medicine",
             consultation_room=doc_profile.consultation_room if doc_profile else None,
+            today_date=day.isoformat(),
             target_date=day,
             current_patient=current_item,
+            active_consultation=active_consultation_dict,
+            waiting_queue=[item.appointment for item in waiting_list],
             waiting_patients=waiting_list,
+            upcoming_appointments=[item.appointment for item in upcoming_list],
             upcoming_patients=upcoming_list,
+            completed_today_count=len(completed_list),
             completed_patients=completed_list,
             reports_pending_approval=pending_reports,
         )
