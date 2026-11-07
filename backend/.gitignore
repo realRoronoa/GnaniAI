@@ -63,11 +63,12 @@ htmlcov/
 *.sqlite
 *.sqlite3
 .local-storage/
-storage/
+/storage/
 temp/
 tmp/
 audio_cache/
 pdf_cache/
+!app/integrations/storage/
 
 # Logs
 *.log

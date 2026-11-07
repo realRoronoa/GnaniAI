@@ -63,13 +63,14 @@ out/
 *.db
 *.sqlite
 *.sqlite3
-storage/
-backend/storage/
+/storage/
+/backend/storage/
 .local-storage/
 audio_cache/
 pdf_cache/
 temp/
 tmp/
+!backend/app/integrations/storage/
 
 # 6. Healthcare Media & Generated Documents (Strict Patient Privacy)
 *.wav
