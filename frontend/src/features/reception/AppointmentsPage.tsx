@@ -68,6 +68,14 @@ export const AppointmentsPage: React.FC = () => {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    if (isBookModalOpen) {
+      if (patients.length > 0 && !selectedPatientId) setSelectedPatientId(patients[0].id);
+      if (doctors.length > 0 && !selectedDoctorId) setSelectedDoctorId(doctors[0].user_id || doctors[0].id);
+      if (branches.length > 0 && !selectedBranchId) setSelectedBranchId(branches[0].id);
+    }
+  }, [isBookModalOpen, patients, doctors, branches]);
+
   const handleBookAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPatientId) {
@@ -249,11 +257,15 @@ export const AppointmentsPage: React.FC = () => {
                   onChange={(e) => setSelectedDoctorId(e.target.value)}
                   className="w-full px-3 py-2 bg-surface-2/60 border border-line rounded text-sm text-ink focus:outline-none"
                 >
-                  {doctors.map((d) => (
-                    <option key={d.id} value={d.user_id || d.id}>
-                      {d.full_name} ({d.specialization || 'Doctor'})
-                    </option>
-                  ))}
+                  {doctors.length === 0 ? (
+                    <option value="" disabled>No doctors found in clinic</option>
+                  ) : (
+                    doctors.map((d) => (
+                      <option key={d.id} value={d.user_id || d.id}>
+                        {d.full_name} ({d.specialization || 'Doctor'})
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 

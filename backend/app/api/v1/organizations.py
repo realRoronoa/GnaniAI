@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_tenant_org_id, require_org_admin
+from app.api.deps import get_current_tenant_org_id, require_org_admin, require_org_member
 from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.models.enums import UserRole, enum_val
@@ -160,7 +160,7 @@ def update_org_profile(
 @router.get("/branches", response_model=list[LocationResponse])
 def list_branches(
     org_id: Annotated[uuid.UUID, Depends(get_current_tenant_org_id)],
-    _: Annotated[OrganizationMembership, Depends(require_org_admin)],
+    _: Annotated[OrganizationMembership, Depends(require_org_member)],
     db: Annotated[Session, Depends(get_db)],
 ) -> list[OrganizationLocation]:
     stmt = (
@@ -229,7 +229,7 @@ def create_branch(
 @router.get("/staff", response_model=StaffOverviewResponse)
 def get_staff_overview(
     org_id: Annotated[uuid.UUID, Depends(get_current_tenant_org_id)],
-    _: Annotated[OrganizationMembership, Depends(require_org_admin)],
+    _: Annotated[OrganizationMembership, Depends(require_org_member)],
     db: Annotated[Session, Depends(get_db)],
 ) -> StaffOverviewResponse:
     # Doctors
@@ -247,6 +247,7 @@ def get_staff_overview(
     doctors = [
         DoctorResponse(
             id=u.id,
+            user_id=u.id,
             email=u.email,
             full_name=u.full_name,
             phone=u.phone,
@@ -276,6 +277,7 @@ def get_staff_overview(
     receptionists = [
         ReceptionistResponse(
             id=u.id,
+            user_id=u.id,
             email=u.email,
             full_name=u.full_name,
             phone=u.phone,
@@ -363,6 +365,7 @@ def create_doctor(
 
     return DoctorResponse(
         id=doctor_user.id,
+        user_id=doctor_user.id,
         email=doctor_user.email,
         full_name=doctor_user.full_name,
         phone=doctor_user.phone,
@@ -445,6 +448,7 @@ def create_receptionist(
 
     return ReceptionistResponse(
         id=rec_user.id,
+        user_id=rec_user.id,
         email=rec_user.email,
         full_name=rec_user.full_name,
         phone=rec_user.phone,

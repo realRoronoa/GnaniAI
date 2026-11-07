@@ -123,6 +123,7 @@ class DoctorCreate(BaseModel):
 
 class DoctorResponse(BaseModel):
     id: UUID
+    user_id: UUID | None = None
     email: str
     full_name: str
     phone: str | None
@@ -147,6 +148,7 @@ class ReceptionistCreate(BaseModel):
 
 class ReceptionistResponse(BaseModel):
     id: UUID
+    user_id: UUID | None = None
     email: str
     full_name: str
     phone: str | None

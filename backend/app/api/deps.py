@@ -156,3 +156,11 @@ def require_doctor(
         )
     return membership
 
+
+def require_org_member(
+    membership: Annotated[OrganizationMembership, Depends(get_current_membership)],
+) -> OrganizationMembership:
+    """Allows any active staff member (ORG_ADMIN, RECEPTIONIST, DOCTOR) within the tenant organization."""
+    return membership
+
+
