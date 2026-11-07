@@ -3,7 +3,7 @@ import uuid
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.clinical_reports import Report, ReportStatus
@@ -44,13 +44,16 @@ class ConsultationService:
             select(DoctorProfile).where(DoctorProfile.user_id == doctor_user_id)
         ).scalar_one_or_none()
 
-        # Fetch today's appointments for this doctor
+        # Fetch today's appointments for this doctor + any patient actively waiting/arrived
         stmt = (
             select(Appointment)
             .where(
                 Appointment.organization_id == organization_id,
                 Appointment.doctor_user_id == doctor_user_id,
-                Appointment.appointment_date == day,
+                or_(
+                    Appointment.appointment_date == day,
+                    Appointment.status.in_([AppointmentStatus.WAITING, AppointmentStatus.ARRIVED, AppointmentStatus.IN_CONSULTATION]),
+                ),
             )
             .order_by(Appointment.queue_position.asc(), Appointment.scheduled_time.asc())
         )

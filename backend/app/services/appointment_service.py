@@ -308,16 +308,15 @@ class AppointmentService:
         status_filter: AppointmentStatus | None = None,
         appointment_type: AppointmentType | None = None,
     ) -> QueueViewResponse:
-        day = target_date or date.today()
-
         stmt = (
             select(Appointment)
             .where(
                 Appointment.organization_id == organization_id,
-                Appointment.appointment_date == day,
             )
         )
 
+        if target_date is not None:
+            stmt = stmt.where(Appointment.appointment_date == target_date)
         if doctor_user_id:
             stmt = stmt.where(Appointment.doctor_user_id == doctor_user_id)
         if location_id:
@@ -327,47 +326,49 @@ class AppointmentService:
         if appointment_type:
             stmt = stmt.where(Appointment.appointment_type == appointment_type)
 
-        stmt = stmt.order_by(Appointment.queue_position.asc(), Appointment.scheduled_time.asc())
+        stmt = stmt.order_by(Appointment.appointment_date.desc(), Appointment.queue_position.asc(), Appointment.scheduled_time.asc())
         appointments = db.execute(stmt).scalars().all()
 
-        # Group appointments by doctor
-        doctor_groups_map: dict[uuid.UUID, list[Appointment]] = {}
-        for app in appointments:
-            doctor_groups_map.setdefault(app.doctor_user_id, []).append(app)
+        # Format all appointments
+        all_formatted: list[AppointmentResponse] = []
+        doctor_groups_map: dict[uuid.UUID | None, list[AppointmentResponse]] = {}
+
+        for a in appointments:
+            doc_user = a.doctor
+            formatted = AppointmentResponse(
+                id=a.id,
+                organization_id=a.organization_id,
+                location_id=a.location_id,
+                patient_id=a.patient_id,
+                doctor_user_id=a.doctor_user_id,
+                doctor_name=doc_user.full_name if doc_user else None,
+                created_by_user_id=a.created_by_user_id,
+                appointment_date=a.appointment_date,
+                scheduled_time=a.scheduled_time,
+                queue_position=a.queue_position,
+                appointment_type=a.appointment_type,
+                status=a.status,
+                reason_for_visit=a.reason_for_visit,
+                administrative_notes=a.administrative_notes,
+                arrived_at=a.arrived_at,
+                started_at=a.started_at,
+                completed_at=a.completed_at,
+                created_at=a.created_at,
+                patient=PatientSummaryInAppointment.model_validate(a.patient) if a.patient else None,
+            )
+            all_formatted.append(formatted)
+            doctor_groups_map.setdefault(a.doctor_user_id, []).append(formatted)
 
         doctor_queues: list[DoctorQueueGroup] = []
         for doc_id, apps in doctor_groups_map.items():
-            doc_user = db.get(User, doc_id)
-            doc_profile = db.execute(
-                select(DoctorProfile).where(DoctorProfile.user_id == doc_id)
-            ).scalar_one_or_none()
+            doc_user = db.get(User, doc_id) if doc_id else None
+            doc_profile = None
+            if doc_id:
+                doc_profile = db.execute(
+                    select(DoctorProfile).where(DoctorProfile.user_id == doc_id)
+                ).scalar_one_or_none()
 
             waiting_count = sum(1 for a in apps if enum_val(a.status) in ("WAITING", "ARRIVED"))
-
-            formatted_apps = [
-                AppointmentResponse(
-                    id=a.id,
-                    organization_id=a.organization_id,
-                    location_id=a.location_id,
-                    patient_id=a.patient_id,
-                    doctor_user_id=a.doctor_user_id,
-                    doctor_name=doc_user.full_name if doc_user else None,
-                    created_by_user_id=a.created_by_user_id,
-                    appointment_date=a.appointment_date,
-                    scheduled_time=a.scheduled_time,
-                    queue_position=a.queue_position,
-                    appointment_type=a.appointment_type,
-                    status=a.status,
-                    reason_for_visit=a.reason_for_visit,
-                    administrative_notes=a.administrative_notes,
-                    arrived_at=a.arrived_at,
-                    started_at=a.started_at,
-                    completed_at=a.completed_at,
-                    created_at=a.created_at,
-                    patient=PatientSummaryInAppointment.model_validate(a.patient) if a.patient else None,
-                )
-                for a in apps
-            ]
 
             doctor_queues.append(
                 DoctorQueueGroup(
@@ -376,13 +377,14 @@ class AppointmentService:
                     specialization=doc_profile.specialization if doc_profile else "General",
                     consultation_room=doc_profile.consultation_room if doc_profile else None,
                     waiting_count=waiting_count,
-                    appointments=formatted_apps,
+                    appointments=apps,
                 )
             )
 
         return QueueViewResponse(
-            target_date=day,
-            total_in_queue=len(appointments),
+            target_date=target_date,
+            total_in_queue=len(all_formatted),
             doctor_queues=doctor_queues,
+            queue=all_formatted,
         )
 

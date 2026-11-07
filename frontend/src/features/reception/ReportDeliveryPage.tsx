@@ -25,8 +25,14 @@ export const ReportDeliveryPage: React.FC = () => {
       const response = await api.get('/appointments/queue', {
         params: { status_filter: 'COMPLETED' },
       });
-      const list = response.data?.queue || response.data || [];
-      setCompletedList(Array.isArray(list) ? list : []);
+      const list = Array.isArray(response.data?.queue)
+        ? response.data.queue
+        : Array.isArray(response.data?.doctor_queues)
+        ? response.data.doctor_queues.flatMap((dq: any) => dq.appointments || [])
+        : Array.isArray(response.data)
+        ? response.data
+        : [];
+      setCompletedList(list);
     } catch (err) {
       console.error('Failed to load completed encounters:', err);
     } finally {

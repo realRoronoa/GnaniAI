@@ -100,16 +100,17 @@ class ReceptionOverviewResponse(BaseModel):
 
 
 class DoctorQueueGroup(BaseModel):
-    doctor_user_id: UUID
+    doctor_user_id: UUID | None = None
     doctor_name: str
     specialization: str
     consultation_room: str | None
     waiting_count: int
-    appointments: list[AppointmentResponse]
+    appointments: list[AppointmentResponse] = []
 
 
 class QueueViewResponse(BaseModel):
-    target_date: date
+    target_date: date | None = None
     total_in_queue: int
-    doctor_queues: list[DoctorQueueGroup]
+    doctor_queues: list[DoctorQueueGroup] = []
+    queue: list[AppointmentResponse] = []
 

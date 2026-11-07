@@ -44,8 +44,14 @@ export const AppointmentsPage: React.FC = () => {
         api.get('/patients').catch(() => ({ data: [] })),
       ]);
 
-      const queueList = queueRes.data?.queue || queueRes.data || [];
-      setAppointments(Array.isArray(queueList) ? queueList : []);
+      const queueList = Array.isArray(queueRes.data?.queue)
+        ? queueRes.data.queue
+        : Array.isArray(queueRes.data?.doctor_queues)
+        ? queueRes.data.doctor_queues.flatMap((dq: any) => dq.appointments || [])
+        : Array.isArray(queueRes.data)
+        ? queueRes.data
+        : [];
+      setAppointments(queueList);
       const docList = Array.isArray(staffRes.data?.doctors) ? staffRes.data.doctors : [];
       const branchList = Array.isArray(branchesRes.data) ? branchesRes.data : [];
       const patList = Array.isArray(patientsRes.data) ? patientsRes.data : [];
@@ -171,6 +177,17 @@ export const AppointmentsPage: React.FC = () => {
           >
             Reassign
           </Button>
+        </div>
+      ),
+    },
+    {
+      header: 'Date & Time',
+      render: (a) => (
+        <div>
+          <span className="text-sm font-medium text-ink">{a.appointment_date}</span>
+          <div className="text-xs text-text-2 font-mono">
+            {a.scheduled_time ? new Date(a.scheduled_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Walk-In'}
+          </div>
         </div>
       ),
     },

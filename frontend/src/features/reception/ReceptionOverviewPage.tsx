@@ -40,8 +40,14 @@ export const ReceptionOverviewPage: React.FC = () => {
       ]);
 
       setOverview(overviewRes.data);
-      const queueList = queueRes.data?.queue || queueRes.data || [];
-      setAppointments(Array.isArray(queueList) ? queueList : []);
+      const queueList = Array.isArray(queueRes.data?.queue)
+        ? queueRes.data.queue
+        : Array.isArray(queueRes.data?.doctor_queues)
+        ? queueRes.data.doctor_queues.flatMap((dq: any) => dq.appointments || [])
+        : Array.isArray(queueRes.data)
+        ? queueRes.data
+        : [];
+      setAppointments(queueList);
       setDoctors(Array.isArray(staffRes.data?.doctors) ? staffRes.data.doctors : []);
     } catch (err) {
       console.error('Failed to load reception overview:', err);
