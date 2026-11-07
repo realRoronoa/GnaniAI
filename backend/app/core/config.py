@@ -29,6 +29,17 @@ class Settings(BaseSettings):
         "postgresql+psycopg2://arogyascribe:local_dev_password_change_in_prod@localhost:5432/arogyascribe"
     )
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def assemble_db_connection(cls, v: str | None) -> str:
+        if not v:
+            return "sqlite:///demo.db"
+        if v.startswith("postgres://"):
+            return v.replace("postgres://", "postgresql+psycopg2://", 1)
+        if v.startswith("postgresql://") and not v.startswith("postgresql+psycopg2://"):
+            return v.replace("postgresql://", "postgresql+psycopg2://", 1)
+        return v
+
     # Redis 7 & Celery
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/1"
