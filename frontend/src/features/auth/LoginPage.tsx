@@ -68,32 +68,6 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const handleQuickDemoLogin = async (demoEmail: string, demoPass: string) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
-    setNote(null);
-    setEmailErr('');
-    setPassErr('');
-    setIsLoading(true);
-
-    try {
-      const response = await api.post('/auth/login', {
-        email: demoEmail,
-        password: demoPass,
-      });
-      const { access_token, refresh_token, token_type = 'bearer', user } = response.data;
-      login({ access_token, refresh_token, token_type }, user);
-      navigate(from || getRoleHomeRoute(user.role), { replace: true });
-    } catch (err: any) {
-      setNote({
-        text: getErrorMessage(err) || 'Instant demo login failed.',
-        type: 'bad',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <div className="view" style={{ position: 'relative', minHeight: '100vh', display: 'grid' }}>
       <div className="vside">
@@ -115,100 +89,19 @@ export const LoginPage: React.FC = () => {
           One sign-in for all staff. Your role is set by your organization.
         </p>
 
-        {/* 1-Click Operational Demo Accounts Bar (Super Admin excluded for security) */}
-        {((import.meta as any).env?.VITE_ENABLE_DEMO_BAR !== 'false') && (
-          <div
-            style={{
-              background: 'var(--surface)',
-              border: '1.5px solid var(--line)',
-              borderRadius: '12px',
-              padding: '12px',
-              margin: '18px 0',
-            }}
-          >
-            <div
-              style={{
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.1em',
-                color: 'var(--text-2)',
-                marginBottom: '8px',
-                display: 'flex',
-                justifyContent: 'space-between',
-              }}
-            >
-              <span>1-Click Clinic Staff Demo:</span>
-              <span style={{ color: 'var(--accent-2)' }}>Seeded</span>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={() => handleQuickDemoLogin('orgadmin@arogyacare.in', 'OrgAdmin@123')}
-                style={{
-                  padding: '8px 10px',
-                  borderRadius: '8px',
-                  border: '1px solid var(--line)',
-                  background: 'var(--surface-2)',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  fontSize: '0.8rem',
-                }}
-              >
-                <b>Org Admin</b>
-                <br />
-                <small style={{ color: 'var(--text-2)' }}>Clinic Owner</small>
-              </button>
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={() => handleQuickDemoLogin('reception@arogyacare.in', 'Reception@123')}
-                style={{
-                  padding: '8px 10px',
-                  borderRadius: '8px',
-                  border: '1px solid var(--line)',
-                  background: 'var(--surface-2)',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  fontSize: '0.8rem',
-                }}
-              >
-                <b>Receptionist</b>
-                <br />
-                <small style={{ color: 'var(--text-2)' }}>Front Desk</small>
-              </button>
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={() => handleQuickDemoLogin('dr.sharma@arogyacare.in', 'Doctor@123')}
-                style={{
-                  padding: '8px 10px',
-                  borderRadius: '8px',
-                  border: '1px solid var(--line)',
-                  background: 'var(--surface-2)',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  fontSize: '0.8rem',
-                }}
-              >
-                <b>Doctor</b>
-                <br />
-                <small style={{ color: 'var(--text-2)' }}>Dr. Sharma</small>
-              </button>
-            </div>
-            <div style={{ fontSize: '0.68rem', color: 'var(--text-2)', marginTop: '8px', textAlign: 'center' }}>
-              Platform Super Admin logs in via private credentials (never auto-filled).
-            </div>
-          </div>
-        )}
+        <form id="fl" noValidate onSubmit={handleSubmit} autoComplete="off">
+          {/* Prevent browser / Google password autofill injection */}
+          <input type="text" style={{ display: 'none' }} tabIndex={-1} aria-hidden="true" />
+          <input type="password" style={{ display: 'none' }} tabIndex={-1} aria-hidden="true" />
 
-        <form id="fl" noValidate onSubmit={handleSubmit}>
           <label htmlFor="le">Work email</label>
           <input
             id="le"
+            name="work_email_address_field"
             type="email"
-            autoComplete="username"
+            autoComplete="off"
+            data-lpignore="true"
+            data-form-type="other"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -223,8 +116,11 @@ export const LoginPage: React.FC = () => {
               <div className="pw">
                 <input
                   id="lp"
+                  name="user_secret_security_code"
                   type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
+                  autoComplete="new-password"
+                  data-lpignore="true"
+                  data-form-type="other"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
