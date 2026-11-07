@@ -62,12 +62,15 @@ api.interceptors.response.use(
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
         localStorage.removeItem('user');
-        window.location.href = '/login';
+        if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
+          window.location.href = '/login';
+        }
         return Promise.reject(error);
       }
 
       try {
-        const { data } = await axios.post('/api/v1/auth/refresh', {
+        const refreshUrl = (((import.meta as any).env?.VITE_API_BASE_URL || '') + '/api/v1/auth/refresh');
+        const { data } = await axios.post(refreshUrl, {
           refresh_token: refreshToken,
         });
 
@@ -91,7 +94,9 @@ api.interceptors.response.use(
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
         localStorage.removeItem('user');
-        window.location.href = '/login';
+        if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
+          window.location.href = '/login';
+        }
         return Promise.reject(refreshErr);
       } finally {
         isRefreshing = false;

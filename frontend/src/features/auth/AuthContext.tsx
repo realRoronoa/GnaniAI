@@ -60,6 +60,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('refresh_token', tokens.refresh_token);
     localStorage.setItem('user', JSON.stringify(userData));
     setUser(userData);
+    setIsLoading(false);
     setError(null);
   };
 
