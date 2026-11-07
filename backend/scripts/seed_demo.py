@@ -14,7 +14,7 @@ from decimal import Decimal
 import uuid
 
 from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.core.security import get_password_hash
@@ -46,6 +46,198 @@ from app.models.tenant import (
     ReceptionistProfile,
     User,
 )
+
+
+def clean_mock_data(db_session: Session | None = None) -> dict[str, int]:
+    """Removes all pre-seeded mock clinic records from the database while strictly preserving Super Admin and Plans."""
+    close_after = False
+    if db_session is None:
+        db = SessionLocal()
+        close_after = True
+    else:
+        db = db_session
+
+    try:
+        demo_orgs = db.execute(
+            select(Organization).where(Organization.name.ilike("%Arogya Care%"))
+        ).scalars().all()
+        org_count = len(demo_orgs)
+        for org in demo_orgs:
+            db.delete(org)
+
+        demo_emails = [
+            "orgadmin@arogyacare.in",
+            "reception@arogyacare.in",
+            "dr.sharma@arogyacare.in",
+        ]
+        demo_users = db.execute(
+            select(User).where(User.email.in_(demo_emails))
+        ).scalars().all()
+        user_count = len(demo_users)
+        for u in demo_users:
+            db.delete(u)
+
+        db.commit()
+        print(f"[CLEANUP] Removed {org_count} demo organization(s) and {user_count} demo user(s). Database is clean!")
+        return {"organizations_removed": org_count, "users_removed": user_count}
+    finally:
+        if close_after:
+            db.close()
+
+
+def seed_essentials(target_engine=None, target_session_factory=None) -> None:
+    """Provisions ONLY the Super Admin, the 3 Subscription Plans, and Discount Coupons.
+    Does NOT seed any mock clinics, doctors, receptionists, or patients.
+    """
+    t_engine = target_engine or engine
+    t_session = target_session_factory or SessionLocal
+
+    Base.metadata.create_all(bind=t_engine)
+
+    with t_session() as db:
+        # 1. Super Admin
+        superadmin_email = getattr(settings, "SUPERADMIN_EMAIL", "superadmin@arogyascribe.in")
+        superadmin_password = getattr(settings, "SUPERADMIN_INITIAL_PASSWORD", "Admin@12345")
+        superadmin = db.execute(select(User).where(User.email == superadmin_email)).scalar_one_or_none()
+        if not superadmin:
+            superadmin = User(
+                email=superadmin_email,
+                password_hash=get_password_hash(superadmin_password),
+                full_name="Platform Super Administrator",
+                phone="+919999900000",
+                is_super_admin=True,
+                is_active=True,
+            )
+            db.add(superadmin)
+            db.flush()
+            print(f"Created Platform Owner: {superadmin_email}")
+        else:
+            superadmin.password_hash = get_password_hash(superadmin_password)
+
+        # 2. Subscription Plans
+        plans_data = [
+            {
+                "code": "STARTER",
+                "name": "Starter",
+                "description": "For independent clinics.",
+                "monthly_price": Decimal("4999.00"),
+                "annual_price": Decimal("49990.00"),
+                "max_doctors": 2,
+                "max_receptionists": 1,
+                "max_branches": 1,
+                "monthly_consultation_limit": 250,
+                "audio_storage_mb_limit": 25600,
+                "report_generation_limit": 250,
+                "included_features_json": [
+                    "Up to 2 doctors",
+                    "1 receptionist",
+                    "250 consultations/month",
+                    "25 GB private storage",
+                    "Reception queue and appointments",
+                    "Consent-first recording",
+                    "Doctor report and patient summary PDFs",
+                ],
+                "duration_days": 30,
+                "trial_days": 14,
+                "is_active": True,
+            },
+            {
+                "code": "PROFESSIONAL",
+                "name": "Professional",
+                "description": "For growing clinics.",
+                "monthly_price": Decimal("14999.00"),
+                "annual_price": Decimal("149990.00"),
+                "max_doctors": 10,
+                "max_receptionists": 4,
+                "max_branches": 3,
+                "monthly_consultation_limit": 1000,
+                "audio_storage_mb_limit": 102400,
+                "report_generation_limit": 1000,
+                "included_features_json": [
+                    "Up to 10 doctors",
+                    "4 receptionists",
+                    "1,000 consultations/month",
+                    "100 GB private storage",
+                    "Multiple clinic locations",
+                    "Hindi patient summaries",
+                    "Staff and appointment management",
+                    "Extended audit history",
+                ],
+                "duration_days": 30,
+                "trial_days": 14,
+                "is_active": True,
+            },
+            {
+                "code": "ENTERPRISE",
+                "name": "Enterprise",
+                "description": "For hospitals and medical centres.",
+                "monthly_price": Decimal("49999.00"),
+                "annual_price": Decimal("499990.00"),
+                "max_doctors": 25,
+                "max_receptionists": 10,
+                "max_branches": 10,
+                "monthly_consultation_limit": 3000,
+                "audio_storage_mb_limit": 512000,
+                "report_generation_limit": 3000,
+                "included_features_json": [
+                    "Up to 25 doctors",
+                    "10 receptionists",
+                    "3,000 consultations/month",
+                    "500 GB private storage",
+                    "Multiple branches",
+                    "Advanced audit logs",
+                    "Priority support",
+                    "Centralized organization management",
+                ],
+                "duration_days": 30,
+                "trial_days": 14,
+                "is_active": True,
+            },
+        ]
+        for p in plans_data:
+            existing_plan = db.execute(
+                select(SubscriptionPlan).where(SubscriptionPlan.code == p["code"])
+            ).scalar_one_or_none()
+            if not existing_plan:
+                plan_obj = SubscriptionPlan(**p)
+                db.add(plan_obj)
+            else:
+                for k, v in p.items():
+                    setattr(existing_plan, k, v)
+
+        # 3. Discount Coupons
+        coupons_data = [
+            {
+                "code": "WELCOME20",
+                "description": "20% Inaugural Clinic Discount",
+                "discount_type": "PERCENTAGE",
+                "discount_value": Decimal("20.00"),
+                "applicable_plan_codes": ["STARTER", "PROFESSIONAL", "ENTERPRISE"],
+                "max_redemptions": 500,
+                "current_redemptions": 12,
+                "is_active": True,
+            },
+            {
+                "code": "CLINIC2000",
+                "description": "Flat ₹2,000 Off Independent Clinics",
+                "discount_type": "FLAT_INR",
+                "discount_value": Decimal("2000.00"),
+                "applicable_plan_codes": ["STARTER", "PROFESSIONAL"],
+                "max_redemptions": 200,
+                "current_redemptions": 5,
+                "is_active": True,
+            },
+        ]
+        for c in coupons_data:
+            existing_c = db.execute(select(DiscountCoupon).where(DiscountCoupon.code == c["code"])).scalar_one_or_none()
+            if not existing_c:
+                db.add(DiscountCoupon(**c))
+            else:
+                for k, v in c.items():
+                    setattr(existing_c, k, v)
+
+        db.commit()
+        print("[ESSENTIALS] Super Admin, 3 Plans, and Coupons verified successfully!")
 
 
 def seed(custom_db_url: str | None = None) -> None:

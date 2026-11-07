@@ -24,11 +24,12 @@ from app.db.session import engine
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Startup and shutdown events handler: auto-provisions schema and initial seed."""
+    """Startup and shutdown events handler: auto-provisions schema, ensures essential plans, and purges mock clinics."""
     Base.metadata.create_all(bind=engine)
     try:
-        from scripts.seed_demo import seed
-        seed()
+        from scripts.seed_demo import seed_essentials, clean_mock_data
+        seed_essentials()
+        clean_mock_data()
     except Exception as e:
         print(f"Startup database initialization notice: {e}")
     yield

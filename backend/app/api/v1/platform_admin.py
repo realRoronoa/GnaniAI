@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
@@ -700,5 +700,22 @@ def get_ai_status(
         "cached_entries": cached_entries_count,
         "cache_directory": cache_dir,
         "credit_safety_mode": "ACTIVE (5,000 credit boundary preserved)",
+    }
+
+
+@router.post("/clean-mock-data")
+def purge_mock_clinic_data(
+    current_admin: Annotated[User, Depends(require_platform_owner)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, Any]:
+    """Purges pre-seeded demo clinics, demo staff, and sample patients from the database
+    so the Platform Owner can onboard real hospitals and staff cleanly from scratch.
+    """
+    from scripts.seed_demo import clean_mock_data
+    result = clean_mock_data(db)
+    return {
+        "status": "success",
+        "message": "All mock clinic data has been purged from the database.",
+        "details": result,
     }
 
