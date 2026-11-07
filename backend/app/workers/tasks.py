@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timezone
 import hashlib
+import re
 import uuid
 from typing import Any
 
@@ -15,6 +16,7 @@ from app.integrations.ai import (
     get_transcription_provider,
     get_translation_provider,
 )
+from app.integrations.ai.contracts import TranscriptSegmentResult, TranscriptionResult
 from app.integrations.storage.s3_service import storage_service
 from app.models.clinical_reports import (
     ClinicalFact,
@@ -128,10 +130,51 @@ def process_consultation_pipeline(db: Session, consultation_id: uuid.UUID) -> Co
     db.add(stt_job)
     db.flush()
 
-    stt_provider = get_transcription_provider()
-    transcription_result = asyncio.run(
-        stt_provider.transcribe(audio_bytes, consent.language or "en-IN")
-    )
+    # Check if real live spoken text was recorded
+    live_transcript = None
+    try:
+        live_bytes = storage_service.get_object_bytes(f"orgs/{org_id}/consultations/{consultation.id}/audio/live_transcript.txt")
+        if live_bytes:
+            live_transcript = live_bytes.decode("utf-8").strip()
+    except Exception:
+        live_transcript = None
+
+    if live_transcript and len(live_transcript) > 5:
+        sentences = [s.strip() for s in re.split(r'[.!?\n]+', live_transcript) if s.strip()]
+        segments = []
+        cur_time = 0
+        for i, s in enumerate(sentences):
+            duration = max(2000, len(s) * 80)
+            segments.append(
+                TranscriptSegmentResult(
+                    sequence_number=i + 1,
+                    speaker_label="DOCTOR" if i % 2 == 0 else "PATIENT",
+                    start_time_ms=cur_time,
+                    end_time_ms=cur_time + duration,
+                    text=s,
+                    confidence_score=0.98,
+                )
+            )
+            cur_time += duration + 500
+        transcription_result = TranscriptionResult(
+            full_text=live_transcript,
+            language_detected=consent.language or "en-IN",
+            segments=segments if segments else [
+                TranscriptSegmentResult(
+                    sequence_number=1,
+                    speaker_label="DOCTOR",
+                    start_time_ms=0,
+                    end_time_ms=5000,
+                    text=live_transcript,
+                    confidence_score=0.98,
+                )
+            ],
+        )
+    else:
+        stt_provider = get_transcription_provider()
+        transcription_result = asyncio.run(
+            stt_provider.transcribe(audio_bytes, consent.language or "en-IN")
+        )
 
     transcript_ver = TranscriptVersion(
         organization_id=org_id,

@@ -4,7 +4,7 @@ import hashlib
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -40,6 +40,7 @@ async def upload_consultation_audio(
     membership: Annotated[OrganizationMembership, Depends(require_doctor)],
     db: Annotated[Session, Depends(get_db)],
     audio_file: UploadFile = File(...),
+    transcript_text: str | None = Form(default=None),
 ) -> dict[str, Any]:
     """Uploads recorded encounter audio.
     Rule (Part 5.3 & 6): Strictly blocked unless specific patient consent has been captured and not withdrawn.
@@ -97,6 +98,13 @@ async def upload_consultation_audio(
     storage_key = f"orgs/{org_id}/consultations/{consultation_id}/audio/{asset_id}.{ext}"
 
     storage_service.put_object(storage_key, data, content_type)
+
+    if transcript_text and transcript_text.strip():
+        storage_service.put_object(
+            f"orgs/{org_id}/consultations/{consultation_id}/audio/live_transcript.txt",
+            transcript_text.strip().encode("utf-8"),
+            "text/plain",
+        )
 
     # 4. Save metadata in database
     duration_approx = Decimal(str(round(len(data) / 32000.0, 2)))  # Rough estimate ~ 16kHz 16-bit mono

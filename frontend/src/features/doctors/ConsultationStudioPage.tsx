@@ -65,9 +65,11 @@ export const ConsultationStudioPage: React.FC = () => {
   // ----------------------------------------------------
   const [recState, setRecState] = useState<'IDLE' | 'RECORDING' | 'PAUSED' | 'UPLOADING'>('IDLE');
   const [timerSeconds, setTimerSeconds] = useState(0);
+  const [liveTranscript, setLiveTranscript] = useState('');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const recognitionRef = useRef<any>(null);
 
   // Consent Form State
   const [consentLang, setConsentLang] = useState('hi');
@@ -216,6 +218,7 @@ export const ConsultationStudioPage: React.FC = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioChunksRef.current = [];
+      setLiveTranscript('');
 
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -234,6 +237,27 @@ export const ConsultationStudioPage: React.FC = () => {
         stream.getTracks().forEach((track) => track.stop());
         await uploadAudioBlob(audioBlob);
       };
+
+      // Native browser speech recognition in background for live spoken capture
+      const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRec) {
+        try {
+          const rec = new SpeechRec();
+          rec.continuous = true;
+          rec.interimResults = true;
+          rec.lang = consentLang === 'hi' ? 'hi-IN' : 'en-IN';
+          rec.onresult = (evt: any) => {
+            let full = '';
+            for (let i = 0; i < evt.results.length; i++) {
+              full += evt.results[i][0].transcript + ' ';
+            }
+            setLiveTranscript(full.trim());
+          };
+          rec.onerror = () => {};
+          rec.start();
+          recognitionRef.current = rec;
+        } catch {}
+      }
 
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start(1000); // 1-second chunks
@@ -259,6 +283,9 @@ export const ConsultationStudioPage: React.FC = () => {
   };
 
   const stopRecording = () => {
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch {}
+    }
     if (mediaRecorderRef.current && (recState === 'RECORDING' || recState === 'PAUSED')) {
       setRecState('UPLOADING');
       mediaRecorderRef.current.stop();
@@ -266,6 +293,9 @@ export const ConsultationStudioPage: React.FC = () => {
   };
 
   const stopRecordingCleanup = () => {
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch {}
+    }
     if (mediaRecorderRef.current) {
       try {
         mediaRecorderRef.current.stop();
@@ -277,11 +307,14 @@ export const ConsultationStudioPage: React.FC = () => {
 
   const uploadAudioBlob = async (blob: Blob) => {
     setRecState('UPLOADING');
-    setStatusBanner({ text: 'Uploading encounter audio to secure private S3 bucket...', type: 'ok' });
+    setStatusBanner({ text: 'Uploading encounter audio to secure storage...', type: 'ok' });
 
     try {
       const formData = new FormData();
       formData.append('audio_file', blob, 'consultation_audio.webm');
+      if (liveTranscript.trim()) {
+        formData.append('transcript_text', liveTranscript.trim());
+      }
 
       await api.post(`/consultations/${consultationId}/audio`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -440,6 +473,30 @@ export const ConsultationStudioPage: React.FC = () => {
       alert(`Approval blocked: ${getErrorMessage(err)}`);
     } finally {
       setIsApproving(false);
+    }
+  };
+
+  const handleDownloadPdf = async (reportType: 'DOCTOR_CLINICAL' | 'PATIENT_SUMMARY') => {
+    try {
+      setStatusBanner({
+        text: `Downloading ${reportType === 'DOCTOR_CLINICAL' ? 'Doctor Clinical Note' : 'Patient Handout'} PDF...`,
+        type: 'ok',
+      });
+      const response = await api.get(`/consultations/${consultationId}/reports/${reportType}/pdf`, {
+        responseType: 'blob',
+      });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${reportType === 'DOCTOR_CLINICAL' ? 'doctor_clinical_note' : 'patient_summary'}_${consultationId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      setStatusBanner({ text: 'PDF downloaded successfully!', type: 'ok' });
+    } catch (err) {
+      alert(`PDF download failed: ${getErrorMessage(err)}`);
     }
   };
 
@@ -725,6 +782,24 @@ export const ConsultationStudioPage: React.FC = () => {
                       Uploading & Processing...
                     </Button>
                   )}
+                </div>
+
+                {/* Live Spoken Dictation / Doctor Notes Area */}
+                <div className="pt-3 border-t border-line/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-text uppercase tracking-wider flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${recState === 'RECORDING' ? 'bg-status-rec animate-pulse' : 'bg-line'}`} />
+                      Live Spoken Words & Doctor Clinical Notes
+                    </label>
+                    <span className="text-[11px] text-text-2">Transcribed live from your voice / editable</span>
+                  </div>
+                  <textarea
+                    rows={3}
+                    value={liveTranscript}
+                    onChange={(e) => setLiveTranscript(e.target.value)}
+                    placeholder="Speak into your microphone or type consultation findings directly here... Your actual spoken words will be saved and official clinical reports generated from them."
+                    className="w-full p-3 bg-surface-2/60 border border-line rounded-lg text-sm text-ink focus:outline-none focus:ring-1 focus:ring-ink"
+                  />
                 </div>
 
                 {/* 1-Click Fallback Button for Testers Without Physical Mic */}
@@ -1117,12 +1192,7 @@ export const ConsultationStudioPage: React.FC = () => {
                         variant="outline"
                         size="sm"
                         leftIcon={<Download className="w-4 h-4" />}
-                        onClick={() =>
-                          window.open(
-                            `/api/v1/consultations/${consultationId}/reports/DOCTOR_CLINICAL/pdf`,
-                            '_blank'
-                          )
-                        }
+                        onClick={() => handleDownloadPdf('DOCTOR_CLINICAL')}
                       >
                         Doctor Note PDF
                       </Button>
@@ -1131,12 +1201,7 @@ export const ConsultationStudioPage: React.FC = () => {
                         variant="outline"
                         size="sm"
                         leftIcon={<Download className="w-4 h-4" />}
-                        onClick={() =>
-                          window.open(
-                            `/api/v1/consultations/${consultationId}/reports/PATIENT_SUMMARY/pdf`,
-                            '_blank'
-                          )
-                        }
+                        onClick={() => handleDownloadPdf('PATIENT_SUMMARY')}
                       >
                         Patient Handout PDF
                       </Button>

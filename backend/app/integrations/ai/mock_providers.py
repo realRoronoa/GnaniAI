@@ -209,11 +209,14 @@ class MockReportGenerationProvider:
         doctor_info: dict[str, Any],
         clinic_info: dict[str, Any],
     ) -> DualReportResult:
+        # Dynamic presentation summary
+        hpi_summary = chief_complaint if chief_complaint and len(chief_complaint) > 5 else "Patient presented for outpatient consultation and clinical review."
+
         # 1. Doctor Clinical Report Markdown (All 14 Sections from Part 9.1)
         meds_lines = "\n".join(
             f"- **{m.get('medication_name')}** ({m.get('strength', '')}): {m.get('dosage', '')} {m.get('frequency', '')} for {m.get('duration', '')}. Note: {m.get('special_instructions', 'None')}"
             for m in medications
-        )
+        ) if medications else "- None prescribed at this encounter."
 
         doctor_md = f"""# Clinical Encounter Note (SOAP)
 
@@ -224,10 +227,10 @@ class MockReportGenerationProvider:
 - **Facility:** {clinic_info.get('name')}
 
 ### 2. Chief Complaint
-{chief_complaint}
+{chief_complaint or 'Outpatient clinical consultation'}
 
 ### 3. History of Present Illness (HPI)
-Patient reports fever and severe sore throat for 3 days accompanied by moderate headache. Denies chest pain or shortness of breath.
+{hpi_summary}
 
 ### 4. Vitals & Physical Examination
 - Temp: 101.5°F (patient reported)
@@ -277,10 +280,10 @@ Patient advised to report immediately to emergency if experiencing high persiste
 Namaste **{patient_info.get('full_name')}**, thank you for visiting {clinic_info.get('name')}.
 
 ### 2. Reason for Your Visit
-You consulted Dr. {doctor_info.get('full_name')} today regarding your fever and throat discomfort.
+You consulted Dr. {doctor_info.get('full_name')} today regarding: {chief_complaint or 'Clinical Consultation and Checkup'}.
 
 ### 3. What the Doctor Found
-The examination showed swelling and redness in your throat causing the throat irritation and fever.
+The doctor reviewed your symptoms and conducted a clinical examination for your care plan.
 
 ### 4. Prescribed Medicines & How to Take Them
 {patient_meds_lines}
