@@ -19,6 +19,8 @@ class Settings(BaseSettings):
 
     # Networking & CORS
     allowed_origins: list[str] | str = [
+        "*",
+        "https://gnaniai-nine.vercel.app",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:5173",

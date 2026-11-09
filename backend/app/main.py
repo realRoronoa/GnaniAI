@@ -27,11 +27,12 @@ logger = logging.getLogger("arogyascribe")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Startup and shutdown events handler: auto-provisions schema and ensures demo credentials exist."""
+    """Startup and shutdown events handler: auto-provisions schema, ensures essential plans, and cleans mock data."""
     Base.metadata.create_all(bind=engine)
     try:
-        from scripts.seed_demo import seed
-        seed()
+        from scripts.seed_demo import seed_essentials, clean_mock_data
+        seed_essentials()
+        clean_mock_data()
     except Exception as e:
         logger.warning("Startup database initialization notice: %s", e)
     yield
@@ -44,7 +45,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS Middleware with universal origin support and credentials
+# Universal CORS Middleware configuration
 origins = settings.allowed_origins if isinstance(settings.allowed_origins, list) else ["*"]
 app.add_middleware(
     CORSMiddleware,
@@ -57,38 +58,30 @@ app.add_middleware(
 )
 
 
-@app.exception_handler(Exception)
-async def global_unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Guarantees CORS headers even when an unexpected 500 error occurs so the browser never masks it as CORS failure."""
-    logger.exception("Unhandled server exception: %s", exc)
+@app.middleware("http")
+async def add_cors_headers_middleware(request: Request, call_next):
+    """Guarantees CORS headers on every single response, including OPTIONS preflight and exceptions."""
     origin = request.headers.get("origin")
-    headers: dict[str, str] = {}
+    if request.method == "OPTIONS":
+        response = JSONResponse(content="OK", status_code=200)
+    else:
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            logger.exception("Server processing error on %s %s: %s", request.method, request.url.path, exc)
+            response = JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"detail": f"Processing error: {exc}"},
+            )
+
     if origin:
-        headers["Access-Control-Allow-Origin"] = origin
-        headers["Access-Control-Allow-Credentials"] = "true"
-        headers["Vary"] = "Origin"
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Vary"] = "Origin"
 
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": f"Internal server error: {exc}"},
-        headers=headers,
-    )
-
-
-@app.exception_handler(HTTPException)
-async def global_http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
-    origin = request.headers.get("origin")
-    headers: dict[str, str] = dict(exc.headers) if exc.headers else {}
-    if origin:
-        headers["Access-Control-Allow-Origin"] = origin
-        headers["Access-Control-Allow-Credentials"] = "true"
-        headers["Vary"] = "Origin"
-
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail},
-        headers=headers,
-    )
+    return response
 
 
 # Mount API Routers
