@@ -1,8 +1,11 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 import hashlib
+import logging
 import uuid
 from typing import Annotated, Any
+
+logger = logging.getLogger("arogyascribe.api.recording")
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
