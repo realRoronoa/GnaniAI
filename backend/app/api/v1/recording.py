@@ -210,9 +210,20 @@ def trigger_consultation_processing(
         except Exception:
             pass
 
-    updated_cons = process_consultation_pipeline(
-        db, consultation_id, transcript_text=live_text
-    )
+    try:
+        updated_cons = process_consultation_pipeline(
+            db, consultation_id, transcript_text=live_text
+        )
+    except HTTPException:
+        raise
+    except (ValueError, PermissionError) as err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
+    except Exception as exc:
+        logger.exception("AI processing pipeline failed for consultation %s: %s", consultation_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI processing pipeline error: {exc}",
+        )
 
     return {
         "message": "Consultation processed successfully.",
