@@ -212,9 +212,17 @@ def trigger_consultation_processing(
             pass
 
     is_sample = payload.is_sample_demo if payload else False
-    updated_cons = process_consultation_pipeline(
-        db, consultation_id, transcript_text=live_text, is_sample_demo=is_sample
-    )
+    try:
+        updated_cons = process_consultation_pipeline(
+            db, consultation_id, transcript_text=live_text, is_sample_demo=is_sample
+        )
+    except (PermissionError, ValueError, FileNotFoundError) as client_err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(client_err))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Clinical AI pipeline processing failed: {exc}",
+        )
 
     return {
         "message": "Consultation processed successfully.",
