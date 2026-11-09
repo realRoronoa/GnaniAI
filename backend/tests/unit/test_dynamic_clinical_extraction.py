@@ -108,3 +108,4 @@ async def test_sample_demo_audio_fallback_preserved():
     med_names = [m.medication_name for m in result.medications]
     assert "Paracetamol" in med_names
     assert "Azithromycin" in med_names
+

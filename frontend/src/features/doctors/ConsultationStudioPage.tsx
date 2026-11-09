@@ -73,11 +73,10 @@ const FactValueRenderer: React.FC<{ value: any }> = ({ value }) => {
             return (
               <span
                 key={k}
-                className={`text-[11px] font-medium px-2 py-0.5 rounded border ${
-                  isNegative
+                className={`text-[11px] font-medium px-2 py-0.5 rounded border ${isNegative
                     ? 'bg-status-rec-bg/30 text-status-err border-status-err/20'
                     : 'bg-surface border-line text-text'
-                }`}
+                  }`}
               >
                 <strong className="text-ink">{formattedKey}:</strong> {displayVal}
               </span>
@@ -182,7 +181,7 @@ export const ConsultationStudioPage: React.FC = () => {
       if (isAnyApproved) {
         api.get(`/consultations/${consultationId}/delivery-options`)
           .then((res) => setDeliveryOpts(res.data))
-          .catch(() => {});
+          .catch(() => { });
       }
     } catch (err) {
       console.error('Failed to load consultation studio data:', err);
@@ -313,10 +312,10 @@ export const ConsultationStudioPage: React.FC = () => {
             }
             updateLiveTranscript(full.trim());
           };
-          rec.onerror = () => {};
+          rec.onerror = () => { };
           rec.start();
           recognitionRef.current = rec;
-        } catch {}
+        } catch { }
       }
 
       mediaRecorderRef.current = mediaRecorder;
@@ -344,7 +343,7 @@ export const ConsultationStudioPage: React.FC = () => {
 
   const stopRecording = () => {
     if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch {}
+      try { recognitionRef.current.stop(); } catch { }
     }
     if (mediaRecorderRef.current && (recState === 'RECORDING' || recState === 'PAUSED')) {
       setRecState('UPLOADING');
@@ -354,12 +353,12 @@ export const ConsultationStudioPage: React.FC = () => {
 
   const stopRecordingCleanup = () => {
     if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch {}
+      try { recognitionRef.current.stop(); } catch { }
     }
     if (mediaRecorderRef.current) {
       try {
         mediaRecorderRef.current.stop();
-      } catch {}
+      } catch { }
     }
     setRecState('IDLE');
     setTimerSeconds(0);
@@ -620,13 +619,12 @@ export const ConsultationStudioPage: React.FC = () => {
         {/* Global Notification Banner */}
         {statusBanner && (
           <div
-            className={`p-3 rounded-lg text-xs font-semibold flex items-center justify-between border ${
-              statusBanner.type === 'ok'
+            className={`p-3 rounded-lg text-xs font-semibold flex items-center justify-between border ${statusBanner.type === 'ok'
                 ? 'bg-status-approved-bg text-status-approved border-status-approved/30'
                 : statusBanner.type === 'warn'
-                ? 'bg-status-warn-bg text-status-warn border-status-warn/30'
-                : 'bg-status-rec-bg text-status-err border-status-err/30'
-            }`}
+                  ? 'bg-status-warn-bg text-status-warn border-status-warn/30'
+                  : 'bg-status-rec-bg text-status-err border-status-err/30'
+              }`}
           >
             <span>{statusBanner.text}</span>
             <button
@@ -654,11 +652,10 @@ export const ConsultationStudioPage: React.FC = () => {
             <button
               key={stage.id}
               onClick={() => setActiveStage(stage.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-xs font-semibold tracking-wide transition-all ${
-                activeStage === stage.id
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-xs font-semibold tracking-wide transition-all ${activeStage === stage.id
                   ? 'bg-ink text-surface shadow-sm'
                   : 'bg-surface text-text-2 hover:bg-surface-2 hover:text-ink border border-line/60'
-              }`}
+                }`}
             >
               <span>{stage.icon}</span>
               <span>{stage.label}</span>
@@ -762,23 +759,22 @@ export const ConsultationStudioPage: React.FC = () => {
                 <div className="flex items-center justify-between p-4 bg-surface-2 rounded-lg border border-line">
                   <div className="flex items-center gap-3">
                     <div
-                      className={`w-3.5 h-3.5 rounded-full ${
-                        recState === 'RECORDING'
+                      className={`w-3.5 h-3.5 rounded-full ${recState === 'RECORDING'
                           ? 'bg-status-rec animate-pulse'
                           : recState === 'PAUSED'
-                          ? 'bg-status-warn'
-                          : 'bg-line'
-                      }`}
+                            ? 'bg-status-warn'
+                            : 'bg-line'
+                        }`}
                     />
                     <div>
                       <div className="text-xs font-bold uppercase tracking-wider text-ink">
                         {recState === 'RECORDING'
                           ? 'RECORDING ACTIVE — MIC LIVE'
                           : recState === 'PAUSED'
-                          ? 'RECORDING PAUSED'
-                          : recState === 'UPLOADING'
-                          ? 'UPLOADING AUDIO ASSET'
-                          : 'STUDIO READY'}
+                            ? 'RECORDING PAUSED'
+                            : recState === 'UPLOADING'
+                              ? 'UPLOADING AUDIO ASSET'
+                              : 'STUDIO READY'}
                       </div>
                       <div className="text-[11px] text-text-2">
                         Microphone status: {consent?.is_granted ? 'Authorized' : 'Locked by Consent Gate'}
@@ -928,9 +924,8 @@ export const ConsultationStudioPage: React.FC = () => {
                         >
                           <div className="flex items-center justify-between text-[11px]">
                             <span
-                              className={`font-bold uppercase tracking-wider ${
-                                seg.speaker_label === 'DOCTOR' ? 'text-accent' : 'text-status-ai'
-                              }`}
+                              className={`font-bold uppercase tracking-wider ${seg.speaker_label === 'DOCTOR' ? 'text-accent' : 'text-status-ai'
+                                }`}
                             >
                               {seg.speaker_label}
                             </span>
@@ -1012,26 +1007,24 @@ export const ConsultationStudioPage: React.FC = () => {
                     {facts.map((fact) => (
                       <div
                         key={fact.id}
-                        className={`p-3 rounded-lg border text-xs space-y-2 ${
-                          fact.doctor_review_status === 'ACCEPTED'
+                        className={`p-3 rounded-lg border text-xs space-y-2 ${fact.doctor_review_status === 'ACCEPTED'
                             ? 'bg-status-approved-bg/40 border-status-approved/30'
                             : fact.doctor_review_status === 'REJECTED'
-                            ? 'bg-status-rec-bg/30 border-status-err/20 opacity-60'
-                            : 'bg-surface-2 border-line'
-                        }`}
+                              ? 'bg-status-rec-bg/30 border-status-err/20 opacity-60'
+                              : 'bg-surface-2 border-line'
+                          }`}
                       >
                         <div className="flex items-center justify-between">
                           <span className="font-bold uppercase tracking-wider text-[10px] text-text-2">
                             {fact.category} • {fact.fact_key}
                           </span>
                           <span
-                            className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
-                              fact.doctor_review_status === 'ACCEPTED'
+                            className={`text-[10px] font-semibold px-2 py-0.5 rounded ${fact.doctor_review_status === 'ACCEPTED'
                                 ? 'bg-status-approved-bg text-status-approved'
                                 : fact.doctor_review_status === 'REJECTED'
-                                ? 'bg-status-rec-bg text-status-err'
-                                : 'bg-status-warn-bg text-status-warn'
-                            }`}
+                                  ? 'bg-status-rec-bg text-status-err'
+                                  : 'bg-status-warn-bg text-status-warn'
+                              }`}
                           >
                             {fact.doctor_review_status}
                           </span>
@@ -1110,11 +1103,10 @@ export const ConsultationStudioPage: React.FC = () => {
                     return (
                       <div
                         key={med.id}
-                        className={`p-4 rounded-lg border flex flex-col md:flex-row md:items-center md:justify-between gap-4 ${
-                          isUnverified
+                        className={`p-4 rounded-lg border flex flex-col md:flex-row md:items-center md:justify-between gap-4 ${isUnverified
                             ? 'bg-status-warn-bg/30 border-status-warn/40'
                             : 'bg-surface border-line'
-                        }`}
+                          }`}
                       >
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
@@ -1127,11 +1119,10 @@ export const ConsultationStudioPage: React.FC = () => {
                               </span>
                             )}
                             <span
-                              className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
-                                med.doctor_verified
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded ${med.doctor_verified
                                   ? 'bg-status-approved-bg text-status-approved'
                                   : 'bg-status-warn-bg text-status-warn'
-                              }`}
+                                }`}
                             >
                               {med.doctor_verified ? 'Verified' : 'Verification Needed'}
                             </span>
@@ -1182,21 +1173,19 @@ export const ConsultationStudioPage: React.FC = () => {
               <div className="flex gap-2">
                 <button
                   onClick={() => setSelectedReportType('DOCTOR_CLINICAL')}
-                  className={`px-4 py-2 rounded-md text-xs font-semibold tracking-wide transition-colors ${
-                    selectedReportType === 'DOCTOR_CLINICAL'
+                  className={`px-4 py-2 rounded-md text-xs font-semibold tracking-wide transition-colors ${selectedReportType === 'DOCTOR_CLINICAL'
                       ? 'bg-ink text-surface shadow-sm'
                       : 'bg-surface text-text-2 hover:bg-surface-2'
-                  }`}
+                    }`}
                 >
                   Doctor Clinical Note (SOAP)
                 </button>
                 <button
                   onClick={() => setSelectedReportType('PATIENT_SUMMARY')}
-                  className={`px-4 py-2 rounded-md text-xs font-semibold tracking-wide transition-colors ${
-                    selectedReportType === 'PATIENT_SUMMARY'
+                  className={`px-4 py-2 rounded-md text-xs font-semibold tracking-wide transition-colors ${selectedReportType === 'PATIENT_SUMMARY'
                       ? 'bg-ink text-surface shadow-sm'
                       : 'bg-surface text-text-2 hover:bg-surface-2'
-                  }`}
+                    }`}
                 >
                   Bilingual Patient Handout (मरीज़ सारांश)
                 </button>
