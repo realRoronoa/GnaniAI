@@ -1,12 +1,15 @@
 import asyncio
 from datetime import datetime, timezone
 import hashlib
+import logging
 import re
 import uuid
 from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger("arogyascribe.tasks")
 
 from app.core.config import settings
 from app.db.session import SessionLocal
@@ -37,6 +40,7 @@ from app.models.consultations_audio import (
     TranscriptVersion,
 )
 from app.models.enums import (
+    AudioUploadStatus,
     CertaintyStatus,
     ConsultationStatus,
     DoctorReviewStatus,
@@ -93,6 +97,7 @@ def process_consultation_pipeline(
             organization_id=org_id,
             consultation_id=consultation.id,
             patient_id=consultation.patient_id,
+            recorded_by_doctor_id=consultation.doctor_user_id,
             language=patient_obj.preferred_language if patient_obj else "en-IN",
             consent_wording_version="1.0",
             consent_text_snapshot="Patient granted informed verbal consent for AI clinical documentation assistance.",
@@ -107,21 +112,18 @@ def process_consultation_pipeline(
 
     if not audio_asset:
         # Create a virtual AudioAsset entry for dictated/spoken consultations
+        from decimal import Decimal
         note_bytes = (transcript_text or "Consultation session recorded.").encode("utf-8")
         dummy_key = f"orgs/{org_id}/consultations/{consultation.id}/audio/dictated_notes.txt"
         audio_asset = AudioAsset(
             organization_id=org_id,
             consultation_id=consultation.id,
             storage_key=dummy_key,
-            mime_type="audio/webm",
-            byte_size=len(note_bytes),
+            content_type="audio/webm",
+            file_size_bytes=len(note_bytes),
             checksum_sha256=hashlib.sha256(note_bytes).hexdigest(),
-            duration_seconds=30,
-            sampling_rate_hz=16000,
-            channel_count=1,
-            audio_quality_score=1.0,
-            is_usable_for_clinical_nlp=True,
-            validation_metadata_json={"source": "clinician_dictation"},
+            duration_seconds=Decimal("30.0"),
+            upload_status=AudioUploadStatus.VALIDATED,
         )
         db.add(audio_asset)
         db.flush()
