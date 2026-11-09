@@ -164,3 +164,76 @@ async def test_dynamic_clinical_extraction_therapy_dialogue_zero_fever():
     assert "Paracetamol" not in patient_report
     assert "Azithromycin" not in patient_report
 
+
+@pytest.mark.asyncio
+async def test_hindi_dysentery_transcript_deduplication_and_clean_english_soap():
+    from app.integrations.ai.mock_providers import deduplicate_repeated_phrases, strip_conversational_greetings
+    from app.services.pdf_service import PDFService
+    from app.models.enums import PdfType
+    from datetime import datetime, timezone
+
+    repeated_hindi = (
+        "अरे डॉक्टर साहब मेरा नाम आदर्श प्रताप सिंह है और मुझे पेचिश लगे हुए हैं मैं जब भी खाना खाता हूं हर बार बाथरूम चला जाता हूं खाना भी नहीं खा पा रहा हूं भूख भी नहीं लग रही है "
+    ) * 10
+
+    # 1. Deduplication must collapse repeated chunks
+    deduped = deduplicate_repeated_phrases(repeated_hindi)
+    assert len(deduped.split()) <= 45
+
+    # 2. Stripper must remove greetings and introductory names
+    stripped = strip_conversational_greetings(deduped)
+    assert "अरे डॉक्टर साहब" not in stripped
+    assert "मेरा नाम" not in stripped
+    assert "पेचिश" in stripped
+
+    # 3. Dynamic Extraction must map to English clinical entities
+    extractor = MockClinicalExtractionProvider()
+    result = await extractor.extract_clinical_data(repeated_hindi, [], is_sample_demo=False)
+
+    # Chief complaint must have English medical terminology and ZERO greetings
+    assert "Acute Dysentery" in result.chief_complaint_summary
+    assert "अरे डॉक्टर साहब" not in result.chief_complaint_summary
+    assert "मेरा नाम" not in result.chief_complaint_summary
+
+    fact_keys = [f.fact_key for f in result.facts]
+    assert "dysentery_gastroenteritis" in fact_keys
+
+    # Must provide ORS and Probiotics
+    med_names = [m.medication_name for m in result.medications]
+    assert any("Oral Rehydration Salts" in m or "ORS" in m for m in med_names)
+
+    # 4. Generate Dual Reports
+    report_gen = MockReportGenerationProvider()
+    reports = await report_gen.generate_dual_reports(
+        chief_complaint=result.chief_complaint_summary,
+        facts=[f.model_dump() for f in result.facts],
+        medications=[m.model_dump() for m in result.medications],
+        patient_info={"full_name": "आदर्श प्रताप सिंह", "patient_identifier": "ARC-2026-0001", "age_years": 24, "gender": "MALE"},
+        doctor_info={"full_name": "Dr. Aman Nautiyal", "specialization": "General Physician"},
+        clinic_info={"name": "Guthal Polyclinic", "contact_phone": "+919876543210"},
+        is_sample_demo=False,
+    )
+
+    doc_report = reports.doctor_clinical_markdown
+    assert "Acute Dysentery" in doc_report
+    assert "Postprandial Bowel Urgency" in doc_report
+    assert "Oral Rehydration Salts" in doc_report
+    assert "अरे डॉक्टर साहब मेरा नाम" not in doc_report
+
+    # 5. Generate PDF via PDFService: must succeed and produce non-empty PDF bytes without Helvetica encoding exceptions
+    pdf_bytes = PDFService.generate_pdf(
+        pdf_type=PdfType.DOCTOR_REPORT_PDF,
+        clinic_name="Guthal Polyclinic",
+        clinic_phone="+919876543210",
+        doctor_name="Dr. Aman Nautiyal",
+        doctor_specialization="General Physician",
+        patient_name="आदर्श प्रताप सिंह",
+        patient_identifier="ARC-2026-0001",
+        patient_age="24",
+        patient_gender="MALE",
+        content_markdown=doc_report,
+        signature_hash="abc123hashsignature456",
+        approved_at=datetime.now(timezone.utc),
+    )
+    assert len(pdf_bytes) > 5000
+

@@ -40,6 +40,66 @@ import {
   Printer,
 } from 'lucide-react';
 
+export function deduplicateRepeatedPhrases(text: string): string {
+  if (!text) return '';
+  const cleaned = text.replace(/\s+/g, ' ').trim();
+  let words = cleaned.split(' ');
+  if (!words.length) return '';
+
+  let changed = true;
+  let passes = 0;
+  while (changed && passes < 5) {
+    changed = false;
+    passes++;
+    const n = words.length;
+    const maxBlock = Math.min(200, Math.floor(n / 2));
+    for (let blockLen = maxBlock; blockLen >= 1; blockLen--) {
+      let i = 0;
+      const newWords: string[] = [];
+      let foundRepeat = false;
+      while (i < words.length) {
+        if (i + 2 * blockLen <= words.length) {
+          let isMatch = true;
+          for (let j = 0; j < blockLen; j++) {
+            if (words[i + j].toLowerCase() !== words[i + blockLen + j].toLowerCase()) {
+              isMatch = false;
+              break;
+            }
+          }
+          if (isMatch) {
+            foundRepeat = true;
+            for (let j = 0; j < blockLen; j++) newWords.push(words[i + j]);
+            i += 2 * blockLen;
+            while (i + blockLen <= words.length) {
+              let subMatch = true;
+              for (let j = 0; j < blockLen; j++) {
+                if (words[i + j].toLowerCase() !== words[i - blockLen + j].toLowerCase()) {
+                  subMatch = false;
+                  break;
+                }
+              }
+              if (subMatch) {
+                i += blockLen;
+              } else {
+                break;
+              }
+            }
+            continue;
+          }
+        }
+        newWords.push(words[i]);
+        i++;
+      }
+      if (foundRepeat) {
+        words = newWords;
+        changed = true;
+        break;
+      }
+    }
+  }
+  return words.join(' ').trim();
+}
+
 const FactValueRenderer: React.FC<{ value: any }> = ({ value }) => {
   let parsed = value;
   if (typeof value === 'string') {
@@ -280,6 +340,7 @@ export const ConsultationStudioPage: React.FC = () => {
       audioChunksRef.current = [];
       finalTranscriptRef.current = '';
       interimTranscriptRef.current = '';
+      const baseTextBeforeRec = (liveTranscriptRef.current || '').trim();
       updateLiveTranscript('');
       // Clear pre-existing consultation stage data so stale mock data never bleeds in
       setTranscriptData(null);
@@ -304,7 +365,7 @@ export const ConsultationStudioPage: React.FC = () => {
         stream.getTracks().forEach((track) => track.stop());
         const domVal = textareaRef.current?.value?.trim() || '';
         const currentRef = (liveTranscriptRef.current || '').trim();
-        const finalCaptured = domVal || currentRef;
+        const finalCaptured = deduplicateRepeatedPhrases(domVal || currentRef);
         await uploadAudioBlob(audioBlob, finalCaptured);
       };
 
@@ -317,19 +378,26 @@ export const ConsultationStudioPage: React.FC = () => {
           rec.interimResults = true;
           rec.lang = consentLang === 'hi' ? 'hi-IN' : 'en-IN';
           rec.onresult = (evt: any) => {
-            let final = '';
-            let interim = '';
+            let sessionFinal = '';
+            let sessionInterim = '';
             for (let i = 0; i < evt.results.length; i++) {
-              if (evt.results[i].isFinal) {
-                final += evt.results[i][0].transcript + ' ';
-              } else {
-                interim += evt.results[i][0].transcript + ' ';
+              const item = evt.results[i];
+              if (item && item[0]) {
+                if (item.isFinal) {
+                  sessionFinal += item[0].transcript + ' ';
+                } else {
+                  sessionInterim += item[0].transcript + ' ';
+                }
               }
             }
-            finalTranscriptRef.current = (finalTranscriptRef.current + ' ' + final).trim();
-            interimTranscriptRef.current = interim.trim();
-            const fullCombined = (finalTranscriptRef.current + ' ' + interimTranscriptRef.current).trim();
-            updateLiveTranscript(fullCombined);
+            finalTranscriptRef.current = sessionFinal.trim();
+            interimTranscriptRef.current = sessionInterim.trim();
+            const rawCombined = [baseTextBeforeRec, sessionFinal, sessionInterim]
+              .filter(Boolean)
+              .join(' ')
+              .trim();
+            const cleaned = deduplicateRepeatedPhrases(rawCombined);
+            updateLiveTranscript(cleaned);
           };
           rec.onerror = () => { };
           rec.start();
@@ -370,7 +438,7 @@ export const ConsultationStudioPage: React.FC = () => {
     // 2. Read live DOM value or refs to guarantee real spoken words are preserved
     const domVal = textareaRef.current?.value?.trim() || '';
     const currentRef = (liveTranscriptRef.current || '').trim();
-    const resolvedText = domVal || currentRef;
+    const resolvedText = deduplicateRepeatedPhrases(domVal || currentRef);
     if (resolvedText) {
       updateLiveTranscript(resolvedText);
     }

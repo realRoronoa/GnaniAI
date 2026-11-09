@@ -1,13 +1,53 @@
 from datetime import datetime, timezone
 import io
+import os
 from typing import Any
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.models.enums import PdfType
+
+
+def _init_unicode_font() -> tuple[str, str]:
+    """Registers a TrueType Unicode font supporting Latin + Indic scripts."""
+    try:
+        pdfmetrics.getFont("ArogyaUnicode")
+        return "ArogyaUnicode", "ArogyaUnicode-Bold"
+    except Exception:
+        pass
+
+    candidates = [
+        ("C:/Windows/Fonts/Nirmala.ttc", 0, "C:/Windows/Fonts/Nirmala.ttc", 1),
+        ("C:/Windows/Fonts/nirmala.ttc", 0, "C:/Windows/Fonts/nirmala.ttc", 1),
+        ("C:/Windows/Fonts/mangal.ttf", None, "C:/Windows/Fonts/mangalb.ttf", None),
+        ("C:/Windows/Fonts/arial.ttf", None, "C:/Windows/Fonts/arialbd.ttf", None),
+        ("C:/Windows/Fonts/segoeui.ttf", None, "C:/Windows/Fonts/segoeuib.ttf", None),
+        ("/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf", None, "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf", None),
+        ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", None, "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", None),
+        ("/usr/share/fonts/truetype/freefont/FreeSans.ttf", None, "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf", None),
+    ]
+
+    for reg_path, reg_sub, bold_path, bold_sub in candidates:
+        if os.path.exists(reg_path):
+            try:
+                reg_kwargs = {"subfontIndex": reg_sub} if reg_sub is not None else {}
+                pdfmetrics.registerFont(TTFont("ArogyaUnicode", reg_path, **reg_kwargs))
+                bold_name = "ArogyaUnicode"
+                if bold_path and os.path.exists(bold_path):
+                    bold_kwargs = {"subfontIndex": bold_sub} if bold_sub is not None else {}
+                    pdfmetrics.registerFont(TTFont("ArogyaUnicode-Bold", bold_path, **bold_kwargs))
+                    bold_name = "ArogyaUnicode-Bold"
+                pdfmetrics.registerFontFamily("ArogyaUnicode", normal="ArogyaUnicode", bold=bold_name)
+                return "ArogyaUnicode", bold_name
+            except Exception:
+                continue
+
+    return "Helvetica", "Helvetica-Bold"
 
 
 class PDFService:
@@ -27,6 +67,8 @@ class PDFService:
         approved_at: datetime,
     ) -> bytes:
         """Generates a professional clinical PDF document using ReportLab."""
+        font_name, bold_font_name = _init_unicode_font()
+
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
             buffer,
@@ -41,6 +83,7 @@ class PDFService:
         title_style = ParagraphStyle(
             "DocTitle",
             parent=styles["Heading1"],
+            fontName=bold_font_name,
             fontSize=16,
             leading=20,
             textColor=colors.HexColor("#0f172a"),
@@ -49,6 +92,7 @@ class PDFService:
         subtitle_style = ParagraphStyle(
             "DocSubtitle",
             parent=styles["Normal"],
+            fontName=font_name,
             fontSize=9,
             leading=12,
             textColor=colors.HexColor("#64748b"),
@@ -56,6 +100,7 @@ class PDFService:
         h2_style = ParagraphStyle(
             "DocH2",
             parent=styles["Heading2"],
+            fontName=bold_font_name,
             fontSize=11,
             leading=14,
             textColor=colors.HexColor("#1e293b"),
@@ -65,6 +110,7 @@ class PDFService:
         body_style = ParagraphStyle(
             "DocBody",
             parent=styles["Normal"],
+            fontName=font_name,
             fontSize=9,
             leading=13,
             textColor=colors.HexColor("#334155"),
@@ -72,6 +118,7 @@ class PDFService:
         footer_style = ParagraphStyle(
             "DocFooter",
             parent=styles["Normal"],
+            fontName=font_name,
             fontSize=7,
             leading=10,
             textColor=colors.HexColor("#94a3b8"),

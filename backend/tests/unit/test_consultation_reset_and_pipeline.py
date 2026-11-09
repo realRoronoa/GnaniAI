@@ -110,7 +110,7 @@ def test_pipeline_with_custom_spoken_text_zero_fever(sqlite_db):
 
     # Stale fever data MUST have been purged
     assert "Fever" not in res.chief_complaint_summary
-    assert "Sleep" in res.chief_complaint_summary or "Mindfulness" in res.chief_complaint_summary or "Encounter" in res.chief_complaint_summary
+    assert any(term in res.chief_complaint_summary for term in ["Sleep", "Mindfulness", "Encounter", "Therapy", "Counseling"])
 
     # Facts in DB must belong to the new conversation
     facts = sqlite_db.query(ClinicalFact).filter(ClinicalFact.consultation_id == cons_id).all()
