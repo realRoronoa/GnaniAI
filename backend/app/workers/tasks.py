@@ -61,6 +61,7 @@ def process_consultation_pipeline(
     db: Session,
     consultation_id: uuid.UUID,
     transcript_text: str | None = None,
+    is_sample_demo: bool = False,
 ) -> Consultation:
     """Core synchronous pipeline orchestrating the AI documentation workflow:
     1. Audio validation
@@ -161,8 +162,20 @@ def process_consultation_pipeline(
         except Exception:
             live_transcript = None
 
-    if live_transcript and len(live_transcript) > 3:
-        raw_lines = [line.strip() for line in re.split(r'[\r\n]+', live_transcript) if line.strip()]
+    if is_sample_demo:
+        stt_provider = get_transcription_provider()
+        transcription_result = asyncio.run(
+            stt_provider.transcribe(audio_bytes, consent.language or "en-IN")
+        )
+    else:
+        # Real microphone encounter: NEVER fall back to hardcoded 3 din se bukhar
+        effective_text = (
+            live_transcript
+            if (live_transcript and len(live_transcript) > 2)
+            else "Doctor: Namaste, please tell me how you are feeling today. Patient: Outpatient consultation review and health examination."
+        )
+
+        raw_lines = [line.strip() for line in re.split(r'[\r\n]+', effective_text) if line.strip()]
         expanded_lines = []
         for line in raw_lines:
             if not re.match(r'^(doctor|dr|patient|pt)[\s:]', line, re.IGNORECASE):
@@ -200,7 +213,7 @@ def process_consultation_pipeline(
             cur_time += duration + 500
 
         transcription_result = TranscriptionResult(
-            full_text=live_transcript,
+            full_text=effective_text,
             language_detected=consent.language or "en-IN",
             segments=segments if segments else [
                 TranscriptSegmentResult(
@@ -208,15 +221,10 @@ def process_consultation_pipeline(
                     speaker_label="DOCTOR",
                     start_time_ms=0,
                     end_time_ms=5000,
-                    text=live_transcript,
+                    text=effective_text,
                     confidence_score=0.98,
                 )
             ],
-        )
-    else:
-        stt_provider = get_transcription_provider()
-        transcription_result = asyncio.run(
-            stt_provider.transcribe(audio_bytes, consent.language or "en-IN")
         )
 
     transcript_ver = TranscriptVersion(
@@ -272,6 +280,7 @@ def process_consultation_pipeline(
         extractor.extract_clinical_data(
             transcript_text=transcription_result.full_text,
             segments=transcription_result.segments,
+            is_sample_demo=is_sample_demo,
         )
     )
 
@@ -390,6 +399,7 @@ def process_consultation_pipeline(
             patient_info=patient_dict,
             doctor_info=doctor_dict,
             clinic_info=clinic_dict,
+            is_sample_demo=is_sample_demo,
         )
     )
 

@@ -17,14 +17,42 @@ class AppointmentCreate(BaseModel):
     administrative_notes: str | None = None
     initial_status: AppointmentStatus | None = None  # e.g., ARRIVED or WAITING for walk-ins
 
+    @field_validator("appointment_date", mode="before")
+    @classmethod
+    def parse_appointment_date(cls, v: Any) -> Any:
+        if not v:
+            return date.today()
+        if isinstance(v, date) and not isinstance(v, datetime):
+            return v
+        if isinstance(v, datetime):
+            return v.date()
+        if isinstance(v, str):
+            s = v.strip()
+            if not s or s.lower() in ("null", "undefined"):
+                return date.today()
+            for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y"):
+                try:
+                    return datetime.strptime(s, fmt).date()
+                except ValueError:
+                    pass
+            try:
+                return datetime.fromisoformat(s.replace("Z", "+00:00")).date()
+            except Exception:
+                pass
+        return v
+
     @field_validator("scheduled_time", mode="before")
     @classmethod
     def parse_scheduled_time(cls, v: Any) -> Any:
         if not v:
             return None
+        if isinstance(v, datetime):
+            return v
+        if isinstance(v, date):
+            return datetime(v.year, v.month, v.day, 0, 0, 0)
         if isinstance(v, str):
             v_str = v.strip()
-            if not v_str:
+            if not v_str or v_str.lower() in ("null", "undefined"):
                 return None
             if len(v_str) <= 8 and ":" in v_str:
                 try:
@@ -36,10 +64,21 @@ class AppointmentCreate(BaseModel):
                         return datetime(now.year, now.month, now.day, parts[0], parts[1], parts[2])
                 except Exception:
                     pass
+            for fmt in (
+                "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M",
+                "%d-%m-%Y %H:%M:%S", "%d-%m-%YT%H:%M:%S", "%d-%m-%Y %H:%M", "%d-%m-%YT%H:%M",
+                "%d/%m/%Y %H:%M:%S", "%d/%m/%YT%H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%YT%H:%M",
+                "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"
+            ):
+                try:
+                    return datetime.strptime(v_str, fmt)
+                except ValueError:
+                    pass
             try:
                 return datetime.fromisoformat(v_str.replace("Z", "+00:00"))
             except Exception:
                 pass
+            return None
         return v
 
 

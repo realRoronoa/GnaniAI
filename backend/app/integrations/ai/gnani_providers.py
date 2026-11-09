@@ -157,8 +157,9 @@ class GnaniClinicalExtractionProvider:
         transcript_text: str,
         segments: list[TranscriptSegmentResult],
         previous_consultation_facts: list[dict[str, Any]] | None = None,
+        is_sample_demo: bool = False,
     ) -> ClinicalExtractionResult:
-        cache_key = hashlib.sha256(transcript_text.encode("utf-8")).hexdigest()
+        cache_key = hashlib.sha256((transcript_text + str(is_sample_demo)).encode("utf-8")).hexdigest()
 
         cached = _read_disk_cache(cache_key)
         if cached:
@@ -166,7 +167,7 @@ class GnaniClinicalExtractionProvider:
 
         if not self.api_key or not _check_and_increment_counter():
             fallback_res = await self._fallback.extract_clinical_data(
-                transcript_text, segments, previous_consultation_facts
+                transcript_text, segments, previous_consultation_facts, is_sample_demo=is_sample_demo
             )
             _write_disk_cache(cache_key, fallback_res.model_dump())
             return fallback_res
@@ -193,7 +194,7 @@ class GnaniClinicalExtractionProvider:
             return result
         except Exception:
             fallback_res = await self._fallback.extract_clinical_data(
-                transcript_text, segments, previous_consultation_facts
+                transcript_text, segments, previous_consultation_facts, is_sample_demo=is_sample_demo
             )
             _write_disk_cache(cache_key, fallback_res.model_dump())
             return fallback_res

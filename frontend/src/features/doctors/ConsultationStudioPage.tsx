@@ -115,6 +115,9 @@ export const ConsultationStudioPage: React.FC = () => {
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [liveTranscript, setLiveTranscript] = useState('');
   const liveTranscriptRef = useRef<string>('');
+  const finalTranscriptRef = useRef<string>('');
+  const interimTranscriptRef = useRef<string>('');
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -123,6 +126,9 @@ export const ConsultationStudioPage: React.FC = () => {
   const updateLiveTranscript = (text: string) => {
     liveTranscriptRef.current = text;
     setLiveTranscript(text);
+    if (textareaRef.current && textareaRef.current.value !== text) {
+      textareaRef.current.value = text;
+    }
   };
 
   // Consent Form State
@@ -272,6 +278,8 @@ export const ConsultationStudioPage: React.FC = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioChunksRef.current = [];
+      finalTranscriptRef.current = '';
+      interimTranscriptRef.current = '';
       updateLiveTranscript('');
       // Clear pre-existing consultation stage data so stale mock data never bleeds in
       setTranscriptData(null);
@@ -294,7 +302,10 @@ export const ConsultationStudioPage: React.FC = () => {
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         stream.getTracks().forEach((track) => track.stop());
-        await uploadAudioBlob(audioBlob, liveTranscriptRef.current);
+        const domVal = textareaRef.current?.value?.trim() || '';
+        const currentRef = (liveTranscriptRef.current || '').trim();
+        const finalCaptured = domVal || currentRef;
+        await uploadAudioBlob(audioBlob, finalCaptured);
       };
 
       // Native browser speech recognition in background for live spoken capture
@@ -306,11 +317,19 @@ export const ConsultationStudioPage: React.FC = () => {
           rec.interimResults = true;
           rec.lang = consentLang === 'hi' ? 'hi-IN' : 'en-IN';
           rec.onresult = (evt: any) => {
-            let full = '';
+            let final = '';
+            let interim = '';
             for (let i = 0; i < evt.results.length; i++) {
-              full += evt.results[i][0].transcript + ' ';
+              if (evt.results[i].isFinal) {
+                final += evt.results[i][0].transcript + ' ';
+              } else {
+                interim += evt.results[i][0].transcript + ' ';
+              }
             }
-            updateLiveTranscript(full.trim());
+            finalTranscriptRef.current = (finalTranscriptRef.current + ' ' + final).trim();
+            interimTranscriptRef.current = interim.trim();
+            const fullCombined = (finalTranscriptRef.current + ' ' + interimTranscriptRef.current).trim();
+            updateLiveTranscript(fullCombined);
           };
           rec.onerror = () => { };
           rec.start();
@@ -341,10 +360,21 @@ export const ConsultationStudioPage: React.FC = () => {
     }
   };
 
-  const stopRecording = () => {
+  const stopRecording = async () => {
+    // 1. First stop SpeechRecognition and wait 400ms for browser to flush final recognition event
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch { }
     }
+    await new Promise((r) => setTimeout(r, 400));
+
+    // 2. Read live DOM value or refs to guarantee real spoken words are preserved
+    const domVal = textareaRef.current?.value?.trim() || '';
+    const currentRef = (liveTranscriptRef.current || '').trim();
+    const resolvedText = domVal || currentRef;
+    if (resolvedText) {
+      updateLiveTranscript(resolvedText);
+    }
+
     if (mediaRecorderRef.current && (recState === 'RECORDING' || recState === 'PAUSED')) {
       setRecState('UPLOADING');
       mediaRecorderRef.current.stop();
@@ -369,7 +399,8 @@ export const ConsultationStudioPage: React.FC = () => {
     setStatusBanner({ text: 'Uploading encounter audio to secure storage...', type: 'ok' });
 
     try {
-      const textToSend = (transcriptText !== undefined ? transcriptText : liveTranscriptRef.current).trim();
+      const domVal = textareaRef.current?.value?.trim() || '';
+      const textToSend = (transcriptText || domVal || liveTranscriptRef.current).trim();
       const formData = new FormData();
       formData.append('audio_file', blob, 'consultation_audio.webm');
       if (textToSend) {
@@ -382,8 +413,8 @@ export const ConsultationStudioPage: React.FC = () => {
 
       setStatusBanner({ text: 'Audio uploaded successfully! Running clinical AI pipeline...', type: 'ok' });
 
-      // Automatically trigger AI Pipeline with the actual spoken transcript
-      await runAIPipeline(textToSend);
+      // Automatically trigger AI Pipeline with the actual spoken transcript and is_sample_demo: false
+      await runAIPipeline(textToSend, false);
     } catch (err) {
       setStatusBanner({ text: `Audio upload failed: ${getErrorMessage(err)}`, type: 'err' });
       setRecState('IDLE');
@@ -415,21 +446,23 @@ export const ConsultationStudioPage: React.FC = () => {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      setStatusBanner({ text: 'Sample audio uploaded. Triggering AI transcription & extraction...', type: 'ok' });
-      // Blank transcript signals fallback demo audio mock
-      await runAIPipeline('');
+      setStatusBanner({ text: 'Sample audio uploaded. Triggering sample AI demo pipeline...', type: 'ok' });
+      // Explicitly pass is_sample_demo = true ONLY for this button!
+      await runAIPipeline('', true);
     } catch (err) {
       setStatusBanner({ text: `Synthetic pipeline run failed: ${getErrorMessage(err)}`, type: 'err' });
       setRecState('IDLE');
     }
   };
 
-  const runAIPipeline = async (transcriptText?: string) => {
+  const runAIPipeline = async (transcriptText?: string, isSampleDemo: boolean = false) => {
     setIsProcessingAI(true);
     try {
-      const textToSend = (transcriptText !== undefined ? transcriptText : liveTranscriptRef.current).trim();
+      const domVal = textareaRef.current?.value?.trim() || '';
+      const textToSend = (transcriptText !== undefined ? transcriptText : (domVal || liveTranscriptRef.current)).trim();
       await api.post(`/consultations/${consultationId}/process`, {
         transcript_text: textToSend || null,
+        is_sample_demo: isSampleDemo,
       });
       setStatusBanner({ text: 'AI processing completed! Transcript, Clinical Facts, and Draft Reports generated.', type: 'ok' });
       setRecState('IDLE');
@@ -439,6 +472,26 @@ export const ConsultationStudioPage: React.FC = () => {
       setStatusBanner({ text: `AI pipeline error: ${getErrorMessage(err)}`, type: 'err' });
     } finally {
       setIsProcessingAI(false);
+    }
+  };
+
+  const handleResetConsultation = async () => {
+    if (!window.confirm('Are you sure you want to completely clear and reset this consultation? All recordings, transcripts, facts, medications, and reports will be wiped.')) {
+      return;
+    }
+    try {
+      await api.delete(`/consultations/${consultationId}/reset`);
+      updateLiveTranscript('');
+      finalTranscriptRef.current = '';
+      interimTranscriptRef.current = '';
+      setTranscriptData(null);
+      setFacts([]);
+      setMedications([]);
+      setReports([]);
+      setStatusBanner({ text: 'Consultation wiped clean. Ready for new encounter.', type: 'ok' });
+      await loadConsultationData();
+    } catch (err) {
+      alert(`Reset failed: ${getErrorMessage(err)}`);
     }
   };
 
@@ -790,14 +843,25 @@ export const ConsultationStudioPage: React.FC = () => {
                 {/* Primary Recording Buttons */}
                 <div className="flex items-center gap-3 flex-wrap">
                   {recState === 'IDLE' && (
-                    <Button
-                      variant="primary"
-                      disabled={!consent?.is_granted || isProcessingAI}
-                      leftIcon={<Mic className="w-4 h-4 text-status-rec" />}
-                      onClick={startRecording}
-                    >
-                      Start Microphone Recording
-                    </Button>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <Button
+                        variant="primary"
+                        disabled={!consent?.is_granted || isProcessingAI}
+                        leftIcon={<Mic className="w-4 h-4 text-status-rec" />}
+                        onClick={startRecording}
+                      >
+                        Start Microphone Recording
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={isProcessingAI}
+                        leftIcon={<RefreshCw className="w-3.5 h-3.5 text-text-2" />}
+                        onClick={handleResetConsultation}
+                      >
+                        Clear & Reset Consultation Data
+                      </Button>
+                    </div>
                   )}
 
                   {recState === 'RECORDING' && (
@@ -855,6 +919,7 @@ export const ConsultationStudioPage: React.FC = () => {
                     <span className="text-[11px] text-text-2">Transcribed live from your voice / editable</span>
                   </div>
                   <textarea
+                    ref={textareaRef}
                     rows={3}
                     value={liveTranscript}
                     onChange={(e) => updateLiveTranscript(e.target.value)}

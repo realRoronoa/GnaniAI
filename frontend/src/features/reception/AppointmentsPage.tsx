@@ -89,14 +89,38 @@ export const AppointmentsPage: React.FC = () => {
       return;
     }
 
+    const resolvedDocId = selectedDoctorId || (doctors.length > 0 ? (doctors[0].user_id || doctors[0].id) : null);
+    if (!resolvedDocId) {
+      setError('Please select an assigned doctor.');
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null);
 
     try {
+      let normalizedDate = appDate;
+      if (appDate && appDate.includes('-')) {
+        const parts = appDate.split('-');
+        if (parts[0].length === 2 && parts[2].length === 4) {
+          // DD-MM-YYYY -> YYYY-MM-DD
+          normalizedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
+      } else if (appDate && appDate.includes('/')) {
+        const parts = appDate.split('/');
+        if (parts[0].length === 2 && parts[2].length === 4) {
+          // DD/MM/YYYY -> YYYY-MM-DD
+          normalizedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
+      }
+
       let scheduledIso: string = new Date().toISOString();
       if (appType === 'SCHEDULED' && scheduledTime) {
         try {
-          scheduledIso = new Date(`${appDate}T${scheduledTime}:00`).toISOString();
+          const parsed = new Date(`${normalizedDate}T${scheduledTime}:00`);
+          if (!isNaN(parsed.getTime())) {
+            scheduledIso = parsed.toISOString();
+          }
         } catch {
           scheduledIso = new Date().toISOString();
         }
@@ -104,9 +128,9 @@ export const AppointmentsPage: React.FC = () => {
 
       await api.post('/appointments', {
         patient_id: selectedPatientId,
-        doctor_user_id: selectedDoctorId || null,
+        doctor_user_id: resolvedDocId,
         location_id: selectedBranchId || null,
-        appointment_date: appDate,
+        appointment_date: normalizedDate,
         scheduled_time: scheduledIso,
         appointment_type: appType,
         reason_for_visit: reason || null,
@@ -279,7 +303,7 @@ export const AppointmentsPage: React.FC = () => {
                 </label>
                 <select
                   required
-                  value={selectedDoctorId}
+                  value={selectedDoctorId || (doctors[0]?.user_id || doctors[0]?.id || '')}
                   onChange={(e) => setSelectedDoctorId(e.target.value)}
                   className="w-full px-3 py-2 bg-surface-2/60 border border-line rounded text-sm text-ink focus:outline-none"
                 >

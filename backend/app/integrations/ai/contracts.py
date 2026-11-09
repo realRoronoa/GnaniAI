@@ -69,6 +69,7 @@ class ClinicalExtractionProvider(Protocol):
         transcript_text: str,
         segments: list[TranscriptSegmentResult],
         previous_consultation_facts: list[dict[str, Any]] | None = None,
+        is_sample_demo: bool = False,
     ) -> ClinicalExtractionResult:
         """Extracts structured clinical facts, medication instructions, and evidence grounding."""
         ...
@@ -83,6 +84,7 @@ class ReportGenerationProvider(Protocol):
         patient_info: dict[str, Any],
         doctor_info: dict[str, Any],
         clinic_info: dict[str, Any],
+        is_sample_demo: bool = False,
     ) -> DualReportResult:
         """Generates both 14-section DOCTOR_CLINICAL note and 10-section PATIENT_SUMMARY."""
         ...

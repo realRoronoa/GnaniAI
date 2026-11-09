@@ -6,13 +6,28 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_org_id, require_doctor
 from app.db.session import get_db
 from app.integrations.storage.s3_service import storage_service
-from app.models.consultations_audio import AudioAsset, ConsentRecord, Consultation
+from app.models.clinical_reports import (
+    ClinicalFact,
+    ClinicalFactEvidence,
+    MedicationInstruction,
+    PdfAsset,
+    Report,
+    ReportApproval,
+    ReportVersion,
+)
+from app.models.consultations_audio import (
+    AudioAsset,
+    ConsentRecord,
+    Consultation,
+    TranscriptSegment,
+    TranscriptVersion,
+)
 from app.models.enums import AudioUploadStatus, ConsultationStatus, enum_val
 from app.models.subscriptions import UsageRecord
 from app.models.system_audit import AuditEvent
@@ -166,6 +181,7 @@ async def upload_consultation_audio(
 
 class ProcessConsultationRequest(BaseModel):
     transcript_text: str | None = None
+    is_sample_demo: bool = False
 
 
 @router.post("/consultations/{consultation_id}/process")
@@ -195,11 +211,51 @@ def trigger_consultation_processing(
         except Exception:
             pass
 
-    updated_cons = process_consultation_pipeline(db, consultation_id, transcript_text=live_text)
+    is_sample = payload.is_sample_demo if payload else False
+    updated_cons = process_consultation_pipeline(
+        db, consultation_id, transcript_text=live_text, is_sample_demo=is_sample
+    )
 
     return {
         "message": "Consultation processed successfully.",
         "consultation_id": str(consultation_id),
         "status": enum_val(updated_cons.status),
         "chief_complaint": updated_cons.chief_complaint_summary,
+    }
+
+
+@router.delete("/consultations/{consultation_id}/reset")
+def reset_consultation_data(
+    consultation_id: uuid.UUID,
+    org_id: Annotated[uuid.UUID, Depends(get_current_tenant_org_id)],
+    membership: Annotated[OrganizationMembership, Depends(require_doctor)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, Any]:
+    """Wipes all transcripts, clinical facts, medications, reports, and audio assets for this consultation."""
+    consultation = db.get(Consultation, consultation_id)
+    if not consultation or consultation.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultation session not found.")
+
+    if consultation.doctor_user_id != membership.user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access to consultation.")
+
+    db.execute(delete(PdfAsset).where(PdfAsset.consultation_id == consultation_id))
+    db.execute(delete(ReportApproval).where(ReportApproval.consultation_id == consultation_id))
+    db.execute(delete(ReportVersion).where(ReportVersion.consultation_id == consultation_id))
+    db.execute(delete(Report).where(Report.consultation_id == consultation_id))
+    db.execute(delete(MedicationInstruction).where(MedicationInstruction.consultation_id == consultation_id))
+    fact_ids_subq = select(ClinicalFact.id).where(ClinicalFact.consultation_id == consultation_id)
+    db.execute(delete(ClinicalFactEvidence).where(ClinicalFactEvidence.clinical_fact_id.in_(fact_ids_subq)))
+    db.execute(delete(ClinicalFact).where(ClinicalFact.consultation_id == consultation_id))
+    db.execute(delete(TranscriptSegment).where(TranscriptSegment.consultation_id == consultation_id))
+    db.execute(delete(TranscriptVersion).where(TranscriptVersion.consultation_id == consultation_id))
+    db.execute(delete(AudioAsset).where(AudioAsset.consultation_id == consultation_id))
+
+    consultation.chief_complaint_summary = None
+    consultation.status = ConsultationStatus.IN_PROGRESS
+    db.commit()
+
+    return {
+        "message": "Consultation documentation wiped and reset successfully.",
+        "consultation_id": str(consultation_id),
     }

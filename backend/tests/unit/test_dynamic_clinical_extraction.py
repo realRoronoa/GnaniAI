@@ -101,11 +101,66 @@ async def test_sample_demo_audio_fallback_preserved():
         "I am prescribing Paracetamol 650mg three times a day after meals."
     )
 
-    result = await extractor.extract_clinical_data(sample_transcript, [])
+    result = await extractor.extract_clinical_data(sample_transcript, [], is_sample_demo=True)
 
     # Sample demo fallback preserves fever scenario for testers without mic
     assert "Fever for 3 days, sore throat" in result.chief_complaint_summary
     med_names = [m.medication_name for m in result.medications]
     assert "Paracetamol" in med_names
     assert "Azithromycin" in med_names
+
+
+@pytest.mark.asyncio
+async def test_dynamic_clinical_extraction_therapy_dialogue_zero_fever():
+    extractor = MockClinicalExtractionProvider()
+
+    therapy_transcript = (
+        "Hello doctor, we are discussing cognitive therapy and sleep schedule improvement today. "
+        "No medicines needed, just daily mindfulness and therapy sessions for two weeks."
+    )
+
+    result = await extractor.extract_clinical_data(therapy_transcript, [], is_sample_demo=False)
+
+    # 1. Chief Complaint must reflect therapy/sleep, ZERO fever
+    assert "Fever" not in result.chief_complaint_summary
+    assert "bukhar" not in result.chief_complaint_summary.lower()
+
+    # 2. Facts must extract from therapy sentences
+    fact_quotes = [f.evidence_quotation for f in result.facts]
+    assert any("cognitive therapy" in q.lower() or "mindfulness" in q.lower() for q in fact_quotes)
+    for f in result.facts:
+        assert "fever" not in f.fact_key.lower()
+        assert "sore_throat" not in f.fact_key.lower()
+
+    # 3. Medications must NOT have Paracetamol or Azithromycin
+    med_names = [m.medication_name for m in result.medications]
+    assert "Paracetamol" not in med_names
+    assert "Azithromycin" not in med_names
+    assert any("Mindfulness" in m or "Therapy" in m or "Sleep" in m or "Clinical Care" in m for m in med_names)
+
+    # 4. Dual reports must contain ONLY the therapy discussion
+    report_gen = MockReportGenerationProvider()
+    reports = await report_gen.generate_dual_reports(
+        chief_complaint=result.chief_complaint_summary,
+        facts=[f.model_dump() for f in result.facts],
+        medications=[m.model_dump() for m in result.medications],
+        patient_info={"full_name": "Priya Sharma", "patient_identifier": "ARC-2026-0045", "age_years": 28, "gender": "FEMALE"},
+        doctor_info={"full_name": "Aman Nautiyal", "specialization": "General Physician"},
+        clinic_info={"name": "ArogyaScribe Center", "contact_phone": "+919876543210"},
+        is_sample_demo=False,
+    )
+
+    doc_report = reports.doctor_clinical_markdown
+    patient_report = reports.patient_summary_markdown
+
+    assert "Priya Sharma" in doc_report
+    assert "Streptococcal Pharyngitis" not in doc_report
+    assert "Acute Upper Respiratory Tract Infection" not in doc_report
+    assert "101.5" not in doc_report
+    assert "Paracetamol" not in doc_report
+    assert "Azithromycin" not in doc_report
+
+    assert "Priya Sharma" in patient_report
+    assert "Paracetamol" not in patient_report
+    assert "Azithromycin" not in patient_report
 

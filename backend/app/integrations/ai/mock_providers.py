@@ -90,13 +90,9 @@ class MockClinicalExtractionProvider:
         transcript_text: str,
         segments: list[TranscriptSegmentResult],
         previous_consultation_facts: list[dict[str, Any]] | None = None,
+        is_sample_demo: bool = False,
     ) -> ClinicalExtractionResult:
         # Check if this is the explicit static sample demo audio fallback
-        is_sample_demo = (
-            "doctor sahab, 3 din se bukhar aur gale me dard hai" in transcript_text.lower()
-            and "paracetamol 650mg three times a day" in transcript_text.lower()
-        )
-
         if is_sample_demo:
             facts = [
                 ExtractedClinicalFact(
@@ -205,7 +201,7 @@ class MockClinicalExtractionProvider:
         # -------------------------------------------------------------
         working_segments = list(segments) if segments else []
         if not working_segments:
-            raw_sents = [s.strip() for s in re.split(r'[\r\n.!?]+', transcript_text) if len(s.strip()) > 3]
+            raw_sents = [s.strip() for s in re.split(r'[\r\n.!?]+', transcript_text) if len(s.strip()) > 2]
             for i, s in enumerate(raw_sents):
                 speaker = "DOCTOR" if i % 2 == 0 else "PATIENT"
                 clean_s = s
@@ -221,7 +217,7 @@ class MockClinicalExtractionProvider:
                         speaker_label=speaker,
                         start_time_ms=i * 3000,
                         end_time_ms=(i + 1) * 3000,
-                        text=clean_s,
+                        text=clean_s or s,
                         confidence_score=0.98,
                     )
                 )
@@ -243,13 +239,13 @@ class MockClinicalExtractionProvider:
             (r'\b(allergy|khujli|itching|rash|skin|daane)\b', "Allergy & Skin Presentation", "symptom", "allergy_rash"),
             (r'\b(bp|blood pressure|hypertension)\b', "Blood Pressure Evaluation", "examination", "blood_pressure"),
             (r'\b(sugar|diabetes|glucose)\b', "Glycemic Status", "examination", "diabetes"),
-            (r'\b(stress|anxiety|depression|sleep|insomnia|neend|tension)\b', "Stress & Sleep Patterns", "symptom", "mental_wellness"),
+            (r'\b(stress|anxiety|depression|sleep|insomnia|neend|tension|mindfulness)\b', "Mental Wellness & Sleep Hygiene", "symptom", "mental_wellness"),
             (r'\b(therapy|counseling|physiotherapy|session|rehab)\b', "Therapy & Clinical Counseling", "therapy", "therapy_plan"),
             (r'\b(breath|breathing|saans|asthma)\b', "Respiratory Status", "symptom", "respiratory"),
             (r'\b(pain|dard|takleef|problem|issue)\b', "Pain / Discomfort", "symptom", "pain_symptom"),
         ]
 
-        denial_regex = re.compile(r'\b(no|not|denies|denied|nahi|nhi|without|never)\b', re.IGNORECASE)
+        denial_regex = re.compile(r'\b(no|not|denies|denied|nahi|nhi|without|never|neither)\b', re.IGNORECASE)
 
         seen_keys = set()
         for idx, seg in enumerate(working_segments):
@@ -261,7 +257,7 @@ class MockClinicalExtractionProvider:
                     severity = "Reported"
                     if is_denied:
                         severity = "Denied / Absent"
-                    elif any(w in text_lower for w in ["severe", "bahut", "bohot", "high", "acute"]):
+                    elif any(w in text_lower for w in ["severe", "bahut", "bohot", "high", "acute", "terrible"]):
                         severity = "Severe"
                     elif any(w in text_lower for w in ["mild", "halka", "thoda"]):
                         severity = "Mild"
@@ -284,22 +280,37 @@ class MockClinicalExtractionProvider:
                         )
                     )
 
-        # Fallback if no specific symptom regex matched but segments exist
-        if not facts and working_segments:
-            for idx, seg in enumerate(working_segments[:4]):
+        # Universal sentence extraction: ground any un-captured sentences up to 6 facts
+        for idx, seg in enumerate(working_segments):
+            if len(facts) >= 6:
+                break
+            text_clean = seg.text.strip()
+            if len(text_clean) < 4:
+                continue
+
+            already_grounded = any(idx in f.segment_indices for f in facts)
+            if not already_grounded:
+                is_denied = bool(denial_regex.search(text_clean))
+                # Title from clean words
+                words = [w for w in re.split(r'\s+', text_clean) if len(w) > 2][:5]
+                title = " ".join(words).title() if words else f"Clinical Observation {idx + 1}"
+                if len(title) > 35:
+                    title = title[:35] + "..."
+
                 facts.append(
                     ExtractedClinicalFact(
-                        category="consultation_topic",
-                        fact_key=f"clinical_topic_{idx + 1}",
+                        category="patient_reported" if seg.speaker_label == "PATIENT" else "clinical_observation",
+                        fact_key=f"clinical_fact_{idx + 1}",
                         fact_value={
-                            "name": f"Clinical Note {idx + 1}",
-                            "finding": seg.text,
-                            "severity": "Discussed",
+                            "name": title,
+                            "severity": "Denied / Absent" if is_denied else "Reported",
+                            "finding": text_clean,
+                            "present": not is_denied,
                         },
                         source_speaker=seg.speaker_label,
-                        provenance_type="CLINICIAN_OBSERVED" if seg.speaker_label == "DOCTOR" else "PATIENT_REPORTED",
-                        certainty_status="VERIFIED",
-                        evidence_quotation=seg.text,
+                        provenance_type="PATIENT_REPORTED" if seg.speaker_label == "PATIENT" else "CLINICIAN_OBSERVED",
+                        certainty_status="PATIENT_DENIED" if is_denied else "VERIFIED",
+                        evidence_quotation=text_clean,
                         segment_indices=[idx],
                     )
                 )
@@ -318,10 +329,13 @@ class MockClinicalExtractionProvider:
             ("atorvastatin|atorva", "Atorvastatin", "10mg", "1 tablet", "At bedtime", "Ongoing"),
             ("telmisartan|telma", "Telmisartan", "40mg", "1 tablet", "Morning daily", "Ongoing"),
             ("cough syrup|syrup|koflet", "Expectorant Cough Syrup", "10ml", "Two teaspoonfuls", "Three times daily", "5 days"),
+            ("mindfulness|meditation", "Mindfulness & Relaxation Practice", "Therapeutic", "15-20 mins daily", "Daily morning/evening", "2 weeks"),
             ("physiotherapy|exercise|stretching", "Targeted Physiotherapy & Stretching", "Rehabilitative", "20-30 mins session", "Twice daily", "2 weeks"),
+            ("counseling|therapy session|therapy", "Cognitive & Supportive Therapy", "Clinical", "1 session / week", "Weekly review", "2 weeks"),
             ("hot fomentation|hot compress|ice pack|ice fomentation", "Thermal Therapy (Fomentation)", "Physical", "15 mins application", "Twice daily", "7 days"),
             ("rest|bed rest|aaram", "Therapeutic Rest & Activity Modification", "Supportive", "Full rest", "As needed", "3-5 days"),
             ("gargle|warm water|steam", "Warm Water Gargle & Steam Inhalation", "Supportive", "10 mins steam", "Three times daily", "5 days"),
+            ("sleep|sleep schedule|neend", "Sleep Hygiene Optimization", "Behavioral", "7-8 hours restful sleep", "Nightly routine", "Ongoing"),
         ]
 
         seen_meds = set()
@@ -364,7 +378,7 @@ class MockClinicalExtractionProvider:
                     route="LIFESTYLE",
                     frequency="Daily",
                     duration="Until follow-up review",
-                    special_instructions="Follow the lifestyle guidelines, rest routine, and hydration discussed during visit.",
+                    special_instructions=f"Follow doctor's verbal lifestyle and care recommendations: '{evidence_quote[:75]}...'",
                     uncertainty_flags=[],
                     is_historical=False,
                     evidence_quotation=evidence_quote,
@@ -373,7 +387,7 @@ class MockClinicalExtractionProvider:
 
         # Dynamic Chief Complaint construction
         symptom_fact_names = [
-            f.fact_value.get("name") for f in facts if f.category == "symptom" and f.fact_value.get("present") is not False
+            f.fact_value.get("name") for f in facts if f.fact_value.get("present") is not False
         ]
         if symptom_fact_names:
             chief_complaint = f"Consultation for {', '.join(symptom_fact_names[:3])}"
@@ -410,8 +424,9 @@ class MockReportGenerationProvider:
         patient_info: dict[str, Any],
         doctor_info: dict[str, Any],
         clinic_info: dict[str, Any],
+        is_sample_demo: bool = False,
     ) -> DualReportResult:
-        is_sample_demo_fever = chief_complaint and "fever for 3 days, sore throat" in chief_complaint.lower()
+        is_sample_demo_fever = is_sample_demo and chief_complaint and "fever for 3 days, sore throat" in chief_complaint.lower()
 
         # Dynamic presentation summary
         hpi_summary = chief_complaint if chief_complaint and len(chief_complaint) > 5 else "Patient presented for outpatient consultation and clinical review."
