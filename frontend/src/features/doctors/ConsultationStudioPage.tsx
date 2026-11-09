@@ -174,6 +174,8 @@ export const ConsultationStudioPage: React.FC = () => {
   const [recState, setRecState] = useState<'IDLE' | 'RECORDING' | 'PAUSED' | 'UPLOADING'>('IDLE');
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [liveTranscript, setLiveTranscript] = useState('');
+  const [speechLang, setSpeechLang] = useState<string>('en-IN');
+  const isRecordingRef = useRef<boolean>(false);
   const liveTranscriptRef = useRef<string>('');
   const finalTranscriptRef = useRef<string>('');
   const interimTranscriptRef = useRef<string>('');
@@ -337,6 +339,7 @@ export const ConsultationStudioPage: React.FC = () => {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      isRecordingRef.current = true;
       audioChunksRef.current = [];
       finalTranscriptRef.current = '';
       interimTranscriptRef.current = '';
@@ -376,7 +379,7 @@ export const ConsultationStudioPage: React.FC = () => {
           const rec = new SpeechRec();
           rec.continuous = true;
           rec.interimResults = true;
-          rec.lang = consentLang === 'hi' ? 'hi-IN' : 'en-IN';
+          rec.lang = speechLang || 'en-IN';
           rec.onresult = (evt: any) => {
             let sessionFinal = '';
             let sessionInterim = '';
@@ -399,10 +402,20 @@ export const ConsultationStudioPage: React.FC = () => {
             const cleaned = deduplicateRepeatedPhrases(rawCombined);
             updateLiveTranscript(cleaned);
           };
-          rec.onerror = () => { };
+          rec.onend = () => {
+            // Keep speech recognition continuously alive while recording
+            if (isRecordingRef.current) {
+              try {
+                rec.start();
+              } catch {}
+            }
+          };
+          rec.onerror = (evt: any) => {
+            console.warn('SpeechRecognition status:', evt?.error);
+          };
           rec.start();
           recognitionRef.current = rec;
-        } catch { }
+        } catch {}
       }
 
       mediaRecorderRef.current = mediaRecorder;
@@ -410,7 +423,8 @@ export const ConsultationStudioPage: React.FC = () => {
       setRecState('RECORDING');
       setTimerSeconds(0);
     } catch (err) {
-      alert(`Microphone access error: ${getErrorMessage(err)}. You can use the 1-Click Sample Audio fallback below.`);
+      isRecordingRef.current = false;
+      alert(`Microphone access error: ${getErrorMessage(err)}. Please allow microphone permissions.`);
     }
   };
 
@@ -429,6 +443,7 @@ export const ConsultationStudioPage: React.FC = () => {
   };
 
   const stopRecording = async () => {
+    isRecordingRef.current = false;
     // 1. First stop SpeechRecognition and wait 400ms for browser to flush final recognition event
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch { }
@@ -450,8 +465,9 @@ export const ConsultationStudioPage: React.FC = () => {
   };
 
   const stopRecordingCleanup = () => {
+    isRecordingRef.current = false;
     if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch { }
+      try { recognitionRef.current.abort(); } catch { }
     }
     if (mediaRecorderRef.current) {
       try {
@@ -479,10 +495,17 @@ export const ConsultationStudioPage: React.FC = () => {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      setStatusBanner({ text: 'Audio uploaded successfully! Running clinical AI pipeline...', type: 'ok' });
-
-      // Automatically trigger AI Pipeline with the actual spoken transcript
-      await runAIPipeline(textToSend);
+      if (textToSend && textToSend.length > 2) {
+        setStatusBanner({ text: 'Audio uploaded successfully! Running clinical AI pipeline...', type: 'ok' });
+        // Automatically trigger AI Pipeline with the actual spoken transcript
+        await runAIPipeline(textToSend);
+      } else {
+        setRecState('IDLE');
+        setStatusBanner({
+          text: 'Encounter audio recorded and uploaded. No speech was detected by browser voice-to-text. Please enter your consultation dialogue or clinical notes in the box below and click "Process Dictated Spoken Notes with AI".',
+          type: 'warn',
+        });
+      }
     } catch (err) {
       setStatusBanner({ text: `Audio upload failed: ${getErrorMessage(err)}`, type: 'err' });
       setRecState('IDLE');
@@ -842,7 +865,7 @@ export const ConsultationStudioPage: React.FC = () => {
             >
               <div className="space-y-6">
                 {/* Explicit Text Recording Badge & Timer */}
-                <div className="flex items-center justify-between p-4 bg-surface-2 rounded-lg border border-line">
+                <div className="flex items-center justify-between p-4 bg-surface-2 rounded-lg border border-line flex-wrap gap-3">
                   <div className="flex items-center gap-3">
                     <div
                       className={`w-3.5 h-3.5 rounded-full ${recState === 'RECORDING'
@@ -853,7 +876,7 @@ export const ConsultationStudioPage: React.FC = () => {
                         }`}
                     />
                     <div>
-                      <div className="text-xs font-bold uppercase tracking-wider text-ink">
+                      <div className="text-xs font-bold uppercase tracking-wider text-ink flex items-center gap-2">
                         {recState === 'RECORDING'
                           ? 'RECORDING ACTIVE — MIC LIVE'
                           : recState === 'PAUSED'
@@ -861,6 +884,11 @@ export const ConsultationStudioPage: React.FC = () => {
                             : recState === 'UPLOADING'
                               ? 'UPLOADING AUDIO ASSET'
                               : 'STUDIO READY'}
+                        {recState === 'RECORDING' && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-status-rec/15 text-status-rec animate-pulse">
+                            Listening ({speechLang})
+                          </span>
+                        )}
                       </div>
                       <div className="text-[11px] text-text-2">
                         Microphone status: {consent?.is_granted ? 'Authorized' : 'Locked by Consent Gate'}
@@ -868,8 +896,32 @@ export const ConsultationStudioPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="text-3xl font-mono font-bold text-ink">
-                    {formatTimer(timerSeconds)}
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-[11px] font-semibold text-text uppercase">
+                        Speech Engine:
+                      </label>
+                      <select
+                        value={speechLang}
+                        onChange={(e) => setSpeechLang(e.target.value)}
+                        disabled={recState === 'RECORDING'}
+                        className="px-2 py-1 bg-surface border border-line rounded text-xs text-ink font-medium"
+                      >
+                        <option value="en-IN">English (India)</option>
+                        <option value="hi-IN">Hindi (हिन्दी)</option>
+                        <option value="ta-IN">Tamil (தமிழ்)</option>
+                        <option value="te-IN">Telugu (తెలుగు)</option>
+                        <option value="kn-IN">Kannada (ಕನ್ನಡ)</option>
+                        <option value="ml-IN">Malayalam (മലയാളം)</option>
+                        <option value="mr-IN">Marathi (मराठी)</option>
+                        <option value="bn-IN">Bengali (বাংলা)</option>
+                        <option value="gu-IN">Gujarati (ગુજરાતી)</option>
+                      </select>
+                    </div>
+
+                    <div className="text-3xl font-mono font-bold text-ink">
+                      {formatTimer(timerSeconds)}
+                    </div>
                   </div>
                 </div>
 

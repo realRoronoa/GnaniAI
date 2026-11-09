@@ -93,21 +93,20 @@ async def test_dynamic_clinical_extraction_custom_spoken_text():
 
 
 @pytest.mark.asyncio
-async def test_sample_demo_audio_fallback_preserved():
+async def test_sample_demo_audio_fallback_purged_dynamic_only():
     extractor = MockClinicalExtractionProvider()
 
     sample_transcript = (
-        "Doctor sahab, 3 din se bukhar aur gale me dard hai. "
+        "Doctor, patient presented with mild earache and throat pain. "
         "I am prescribing Paracetamol 650mg three times a day after meals."
     )
 
     result = await extractor.extract_clinical_data(sample_transcript, [], is_sample_demo=True)
 
-    # Sample demo fallback preserves fever scenario for testers without mic
-    assert "Fever for 3 days, sore throat" in result.chief_complaint_summary
+    # Dynamic extraction always runs, zero hardcoded fever template data
+    assert "Fever for 3 days, sore throat, and headache" != result.chief_complaint_summary
     med_names = [m.medication_name for m in result.medications]
     assert "Paracetamol" in med_names
-    assert "Azithromycin" in med_names
 
 
 @pytest.mark.asyncio
