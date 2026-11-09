@@ -8,6 +8,7 @@ from app.integrations.ai.contracts import (
 )
 from app.integrations.ai.gnani_providers import (
     GnaniClinicalExtractionProvider,
+    GnaniReportGenerationProvider,
     GnaniTextToSpeechProvider,
     GnaniTranscriptionProvider,
 )
@@ -33,7 +34,8 @@ def get_clinical_extraction_provider() -> ClinicalExtractionProvider:
 
 
 def get_report_generation_provider() -> ReportGenerationProvider:
-    # Gnani Evon or Mock report generation
+    if settings.ai_provider_mode == "gnani":
+        return GnaniReportGenerationProvider()
     return MockReportGenerationProvider()
 
 
@@ -45,4 +47,3 @@ def get_tts_provider() -> TextToSpeechProvider:
     if settings.ai_provider_mode == "gnani":
         return GnaniTextToSpeechProvider()
     return MockTextToSpeechProvider()
-

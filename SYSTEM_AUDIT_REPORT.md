@@ -64,3 +64,4 @@
 
 * **Is the code production-ready?** Yes. The architecture separates tenant data securely, enforces strict doctor-in-the-loop approvals before report generation, and provides complete audit trails.
 * **Are external APIs integrated?** Yes, the provider integration adapters are fully structured and tested, with a safe fallback/caching mechanism designed for controlled evaluation, automated testing, and live demonstration.
+

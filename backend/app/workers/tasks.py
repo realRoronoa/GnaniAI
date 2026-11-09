@@ -162,70 +162,91 @@ def process_consultation_pipeline(
         except Exception:
             live_transcript = None
 
-    if is_sample_demo:
-        stt_provider = get_transcription_provider()
-        transcription_result = asyncio.run(
-            stt_provider.transcribe(audio_bytes, consent.language or "en-IN")
-        )
-    else:
-        # Real microphone encounter: NEVER fall back to hardcoded 3 din se bukhar
-        effective_text = (
-            live_transcript
-            if (live_transcript and len(live_transcript) > 2)
-            else "Doctor: Namaste, please tell me how you are feeling today. Patient: Outpatient consultation review and health examination."
-        )
+    transcription_result = None
 
-        raw_lines = [line.strip() for line in re.split(r'[\r\n]+', effective_text) if line.strip()]
-        expanded_lines = []
-        for line in raw_lines:
-            if not re.match(r'^(doctor|dr|patient|pt)[\s:]', line, re.IGNORECASE):
-                sub_sentences = [s.strip() for s in re.split(r'[.!?]+', line) if len(s.strip()) > 3]
-                if sub_sentences:
-                    expanded_lines.extend(sub_sentences)
+    # Check if a genuine Gnani API key is configured
+    raw_key = (settings.gnani_api_key or "").strip()
+    has_real_gnani_key = bool(raw_key and raw_key != "YOUR_GNANI_API_KEY_HERE" and not raw_key.startswith("YOUR_"))
+
+    if settings.ai_provider_mode == "gnani" and has_real_gnani_key and audio_bytes and len(audio_bytes) > 200:
+        try:
+            stt_provider = get_transcription_provider()
+            logger.info("Dispatching audio to Gnani Prisma STT for consultation %s (%d bytes)", consultation.id, len(audio_bytes))
+            res = asyncio.run(
+                stt_provider.transcribe(audio_bytes, consent.language or "en-IN")
+            )
+            # Only adopt if it returned substantive non-fallback transcription text
+            if res and res.full_text and len(res.full_text.strip()) > 5:
+                transcription_result = res
+        except Exception as e:
+            logger.warning("Gnani STT call encountered an exception (%s). Falling back gracefully.", e)
+            transcription_result = None
+
+    if transcription_result is None:
+        if is_sample_demo:
+            stt_provider = get_transcription_provider()
+            transcription_result = asyncio.run(
+                stt_provider.transcribe(audio_bytes, consent.language or "en-IN")
+            )
+        else:
+            # Real microphone encounter: NEVER fall back to hardcoded 3 din se bukhar
+            effective_text = (
+                live_transcript
+                if (live_transcript and len(live_transcript) > 2)
+                else "Doctor: Namaste, please tell me how you are feeling today. Patient: Outpatient consultation review and health examination."
+            )
+
+            raw_lines = [line.strip() for line in re.split(r'[\r\n]+', effective_text) if line.strip()]
+            expanded_lines = []
+            for line in raw_lines:
+                if not re.match(r'^(doctor|dr|patient|pt)[\s:]', line, re.IGNORECASE):
+                    sub_sentences = [s.strip() for s in re.split(r'[.!?]+', line) if len(s.strip()) > 3]
+                    if sub_sentences:
+                        expanded_lines.extend(sub_sentences)
+                    else:
+                        expanded_lines.append(line)
                 else:
                     expanded_lines.append(line)
-            else:
-                expanded_lines.append(line)
 
-        segments = []
-        cur_time = 0
-        for i, s in enumerate(expanded_lines):
-            speaker = "DOCTOR" if i % 2 == 0 else "PATIENT"
-            clean_text = s
-            if re.match(r'^(doctor|dr)[\s:]+', s, re.IGNORECASE):
-                speaker = "DOCTOR"
-                clean_text = re.sub(r'^(doctor|dr)[\s:]+', '', s, flags=re.IGNORECASE).strip()
-            elif re.match(r'^(patient|pt)[\s:]+', s, re.IGNORECASE):
-                speaker = "PATIENT"
-                clean_text = re.sub(r'^(patient|pt)[\s:]+', '', s, flags=re.IGNORECASE).strip()
+            segments = []
+            cur_time = 0
+            for i, s in enumerate(expanded_lines):
+                speaker = "DOCTOR" if i % 2 == 0 else "PATIENT"
+                clean_text = s
+                if re.match(r'^(doctor|dr)[\s:]+', s, re.IGNORECASE):
+                    speaker = "DOCTOR"
+                    clean_text = re.sub(r'^(doctor|dr)[\s:]+', '', s, flags=re.IGNORECASE).strip()
+                elif re.match(r'^(patient|pt)[\s:]+', s, re.IGNORECASE):
+                    speaker = "PATIENT"
+                    clean_text = re.sub(r'^(patient|pt)[\s:]+', '', s, flags=re.IGNORECASE).strip()
 
-            duration = max(2000, len(clean_text) * 75)
-            segments.append(
-                TranscriptSegmentResult(
-                    sequence_number=i + 1,
-                    speaker_label=speaker,
-                    start_time_ms=cur_time,
-                    end_time_ms=cur_time + duration,
-                    text=clean_text or s,
-                    confidence_score=0.98,
+                duration = max(2000, len(clean_text) * 75)
+                segments.append(
+                    TranscriptSegmentResult(
+                        sequence_number=i + 1,
+                        speaker_label=speaker,
+                        start_time_ms=cur_time,
+                        end_time_ms=cur_time + duration,
+                        text=clean_text or s,
+                        confidence_score=0.98,
+                    )
                 )
+                cur_time += duration + 500
+
+            transcription_result = TranscriptionResult(
+                full_text=effective_text,
+                language_detected=consent.language or "en-IN",
+                segments=segments if segments else [
+                    TranscriptSegmentResult(
+                        sequence_number=1,
+                        speaker_label="DOCTOR",
+                        start_time_ms=0,
+                        end_time_ms=5000,
+                        text=effective_text,
+                        confidence_score=0.98,
+                    )
+                ],
             )
-            cur_time += duration + 500
-
-        transcription_result = TranscriptionResult(
-            full_text=effective_text,
-            language_detected=consent.language or "en-IN",
-            segments=segments if segments else [
-                TranscriptSegmentResult(
-                    sequence_number=1,
-                    speaker_label="DOCTOR",
-                    start_time_ms=0,
-                    end_time_ms=5000,
-                    text=effective_text,
-                    confidence_score=0.98,
-                )
-            ],
-        )
 
     transcript_ver = TranscriptVersion(
         organization_id=org_id,
