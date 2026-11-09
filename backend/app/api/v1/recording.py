@@ -181,7 +181,6 @@ async def upload_consultation_audio(
 
 class ProcessConsultationRequest(BaseModel):
     transcript_text: str | None = None
-    is_sample_demo: bool = False
 
 
 @router.post("/consultations/{consultation_id}/process")
@@ -211,9 +210,8 @@ def trigger_consultation_processing(
         except Exception:
             pass
 
-    is_sample = payload.is_sample_demo if payload else False
     updated_cons = process_consultation_pipeline(
-        db, consultation_id, transcript_text=live_text, is_sample_demo=is_sample
+        db, consultation_id, transcript_text=live_text
     )
 
     return {

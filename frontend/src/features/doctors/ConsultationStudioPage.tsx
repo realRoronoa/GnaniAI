@@ -481,57 +481,21 @@ export const ConsultationStudioPage: React.FC = () => {
 
       setStatusBanner({ text: 'Audio uploaded successfully! Running clinical AI pipeline...', type: 'ok' });
 
-      // Automatically trigger AI Pipeline with the actual spoken transcript and is_sample_demo: false
-      await runAIPipeline(textToSend, false);
+      // Automatically trigger AI Pipeline with the actual spoken transcript
+      await runAIPipeline(textToSend);
     } catch (err) {
       setStatusBanner({ text: `Audio upload failed: ${getErrorMessage(err)}`, type: 'err' });
       setRecState('IDLE');
     }
   };
 
-  // 1-Click Sample Synthetic Audio Fallback
-  const handleUploadSampleAudioAndRun = async () => {
-    if (!consent?.is_granted) {
-      await handleGrantConsent();
-    }
-
-    setRecState('UPLOADING');
-    setStatusBanner({ text: 'Generating synthetic consultation audio file...', type: 'ok' });
-
-    try {
-      // 1-second PCM silence WAV header
-      const wavBytes = new Uint8Array([
-        82, 73, 70, 70, 36, 0, 0, 0, 87, 65, 86, 69, 102, 109, 116, 32,
-        16, 0, 0, 0, 1, 0, 1, 0, 68, 172, 0, 0, 136, 88, 1, 0, 2, 0, 16, 0,
-        100, 97, 116, 97, 0, 0, 0, 0
-      ]);
-      const blob = new Blob([wavBytes], { type: 'audio/wav' });
-
-      const formData = new FormData();
-      formData.append('audio_file', blob, 'sample_consultation.wav');
-
-      await api.post(`/consultations/${consultationId}/audio`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
-      setStatusBanner({ text: 'Audio uploaded. Processing AI pipeline...', type: 'ok' });
-      const domVal = textareaRef.current?.value?.trim() || '';
-      const textToSend = domVal || liveTranscriptRef.current;
-      await runAIPipeline(textToSend, false);
-    } catch (err) {
-      setStatusBanner({ text: `Synthetic pipeline run failed: ${getErrorMessage(err)}`, type: 'err' });
-      setRecState('IDLE');
-    }
-  };
-
-  const runAIPipeline = async (transcriptText?: string, isSampleDemo: boolean = false) => {
+  const runAIPipeline = async (transcriptText?: string) => {
     setIsProcessingAI(true);
     try {
       const domVal = textareaRef.current?.value?.trim() || '';
       const textToSend = (transcriptText !== undefined ? transcriptText : (domVal || liveTranscriptRef.current)).trim();
       await api.post(`/consultations/${consultationId}/process`, {
         transcript_text: textToSend || null,
-        is_sample_demo: isSampleDemo,
       });
       setStatusBanner({ text: 'AI processing completed! Transcript, Clinical Facts, and Draft Reports generated.', type: 'ok' });
       setRecState('IDLE');
@@ -1008,24 +972,6 @@ export const ConsultationStudioPage: React.FC = () => {
                       </Button>
                     </div>
                   )}
-                </div>
-
-                {/* 1-Click Fallback Button for Testers Without Physical Mic */}
-                <div className="pt-4 border-t border-line/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div className="text-xs text-text-2">
-                    <strong className="text-ink">No physical microphone on this machine?</strong>
-                    <p>Trigger the full end-to-end pipeline using synthetic test audio in 1 click.</p>
-                  </div>
-
-                  <Button
-                    variant="accent"
-                    size="sm"
-                    isLoading={isProcessingAI || recState === 'UPLOADING'}
-                    leftIcon={<Sparkles className="w-3.5 h-3.5" />}
-                    onClick={handleUploadSampleAudioAndRun}
-                  >
-                    Upload Sample Audio & Run AI Pipeline
-                  </Button>
                 </div>
               </div>
             </Card>

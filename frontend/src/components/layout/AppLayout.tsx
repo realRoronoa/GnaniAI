@@ -26,29 +26,14 @@ interface AppLayoutProps {
 }
 
 export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
-  const { user, role, login, logout } = useAuth();
+  const { user, role, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [isSwitching, setIsSwitching] = useState(false);
 
   const handleLogout = async () => {
     await logout();
     navigate('/login');
-  };
-
-  const handleSwitchDemoRole = async (email: string, pass: string) => {
-    setIsSwitching(true);
-    try {
-      const res = await api.post('/auth/login', { email, password: pass });
-      const { access_token, refresh_token, token_type = 'bearer', user: newUser } = res.data;
-      login({ access_token, refresh_token, token_type }, newUser);
-      navigate(getRoleHomeRoute(newUser.role));
-    } catch (err) {
-      console.error('Failed to switch demo role:', err);
-    } finally {
-      setIsSwitching(false);
-    }
   };
 
   // Define navigation items based on role
@@ -166,57 +151,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             <LogOut className="w-3.5 h-3.5" />
             <span>Sign out</span>
           </button>
-
-          {/* Quick Demo Role Switcher (1-Click for Clinic Staff) */}
-          {((import.meta as any).env?.VITE_ENABLE_DEMO_BAR !== 'false') && (
-            <div className="mt-3 pt-3 border-t border-line/40">
-              <div className="text-[10px] uppercase font-bold text-text-2 tracking-wider mb-1.5 flex justify-between">
-                <span>Quick Role Switch</span>
-                <span className="text-accent text-[9px]">Demo</span>
-              </div>
-              <div className="grid grid-cols-3 gap-1 text-[10px]">
-                <button
-                  type="button"
-                  disabled={isSwitching || role === 'ORG_ADMIN'}
-                  onClick={() => handleSwitchDemoRole('orgadmin@arogyacare.in', 'OrgAdmin@123')}
-                  className={`py-1 px-1 rounded text-center font-medium border truncate transition-all ${
-                    role === 'ORG_ADMIN'
-                      ? 'bg-ink text-surface border-ink font-bold'
-                      : 'bg-surface hover:bg-surface-2 text-ink border-line'
-                  }`}
-                  title="Switch to Clinic Administrator"
-                >
-                  Admin
-                </button>
-                <button
-                  type="button"
-                  disabled={isSwitching || role === 'RECEPTIONIST'}
-                  onClick={() => handleSwitchDemoRole('reception@arogyacare.in', 'Reception@123')}
-                  className={`py-1 px-1 rounded text-center font-medium border truncate transition-all ${
-                    role === 'RECEPTIONIST'
-                      ? 'bg-ink text-surface border-ink font-bold'
-                      : 'bg-surface hover:bg-surface-2 text-ink border-line'
-                  }`}
-                  title="Switch to Receptionist"
-                >
-                  Reception
-                </button>
-                <button
-                  type="button"
-                  disabled={isSwitching || role === 'DOCTOR'}
-                  onClick={() => handleSwitchDemoRole('dr.sharma@arogyacare.in', 'Doctor@123')}
-                  className={`py-1 px-1 rounded text-center font-medium border truncate transition-all ${
-                    role === 'DOCTOR'
-                      ? 'bg-ink text-surface border-ink font-bold'
-                      : 'bg-surface hover:bg-surface-2 text-ink border-line'
-                  }`}
-                  title="Switch to Doctor"
-                >
-                  Doctor
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
