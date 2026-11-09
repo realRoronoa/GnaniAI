@@ -42,7 +42,7 @@ class ConsultationService:
 
         doc_profile = db.execute(
             select(DoctorProfile).where(DoctorProfile.user_id == doctor_user_id)
-        ).scalar_one_or_none()
+        ).scalars().first()
 
         # Fetch all appointments for this doctor in this organization (excluding cancelled)
         stmt = (
@@ -73,15 +73,15 @@ class ConsultationService:
             # Check existing consultation & consent
             consultation = db.execute(
                 select(Consultation).where(Consultation.appointment_id == app.id)
-            ).scalar_one_or_none()
+            ).scalars().first()
 
             consent_status = "NOT_RECORDED"
             cons_id = None
             if consultation:
                 cons_id = consultation.id
                 consent = db.execute(
-                    select(ConsentRecord).where(ConsentRecord.consultation_id == consultation.id)
-                ).scalar_one_or_none()
+                    select(ConsentRecord).where(ConsentRecord.consultation_id == consultation.id).order_by(ConsentRecord.created_at.desc())
+                ).scalars().first()
                 if consent:
                     consent_status = "WITHDRAWN" if consent.withdrawn_at else ("GRANTED" if consent.is_granted else "DENIED")
 
@@ -204,8 +204,8 @@ class ConsultationService:
 
         # Resume existing consultation if present
         existing_cons = db.execute(
-            select(Consultation).where(Consultation.appointment_id == appointment_id)
-        ).scalar_one_or_none()
+            select(Consultation).where(Consultation.appointment_id == appointment_id).order_by(Consultation.created_at.desc())
+        ).scalars().first()
 
         now = datetime.now(timezone.utc)
 
@@ -224,8 +224,8 @@ class ConsultationService:
             select(UsageRecord).where(
                 UsageRecord.organization_id == organization_id,
                 UsageRecord.period_month == month_str,
-            )
-        ).scalar_one_or_none()
+            ).order_by(UsageRecord.created_at.desc())
+        ).scalars().first()
 
         if not usage and sub:
             usage = UsageRecord(
@@ -311,8 +311,8 @@ class ConsultationService:
 
         # Existing consent
         consent = db.execute(
-            select(ConsentRecord).where(ConsentRecord.consultation_id == consultation_id)
-        ).scalar_one_or_none()
+            select(ConsentRecord).where(ConsentRecord.consultation_id == consultation_id).order_by(ConsentRecord.created_at.desc())
+        ).scalars().first()
 
         if consent:
             consent.purpose = data.purpose
@@ -380,8 +380,8 @@ class ConsultationService:
             )
 
         consent = db.execute(
-            select(ConsentRecord).where(ConsentRecord.consultation_id == consultation_id)
-        ).scalar_one_or_none()
+            select(ConsentRecord).where(ConsentRecord.consultation_id == consultation_id).order_by(ConsentRecord.created_at.desc())
+        ).scalars().first()
 
         if not consent or not consent.is_granted:
             raise HTTPException(

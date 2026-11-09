@@ -88,8 +88,8 @@ def process_consultation_pipeline(
             ConsentRecord.consultation_id == consultation_id,
             ConsentRecord.is_granted.is_(True),
             ConsentRecord.withdrawn_at.is_(None),
-        )
-    ).scalar_one_or_none()
+        ).order_by(ConsentRecord.created_at.desc())
+    ).scalars().first()
 
     if not consent:
         patient_obj = db.get(Patient, consultation.patient_id) if consultation.patient_id else None
@@ -108,7 +108,7 @@ def process_consultation_pipeline(
 
     audio_asset = db.execute(
         select(AudioAsset).where(AudioAsset.consultation_id == consultation_id).order_by(AudioAsset.created_at.desc())
-    ).scalar_one_or_none()
+    ).scalars().first()
 
     if not audio_asset:
         # Create a virtual AudioAsset entry for dictated/spoken consultations
@@ -411,7 +411,7 @@ def process_consultation_pipeline(
 
     patient = db.get(Patient, consultation.patient_id)
     doctor = db.get(User, consultation.doctor_user_id)
-    doc_prof = db.execute(select(DoctorProfile).where(DoctorProfile.user_id == doctor.id)).scalar_one_or_none()
+    doc_prof = db.execute(select(DoctorProfile).where(DoctorProfile.user_id == doctor.id)).scalars().first()
     org = db.get(Organization, org_id)
 
     patient_dict = {

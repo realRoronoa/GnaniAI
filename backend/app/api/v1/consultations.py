@@ -58,8 +58,10 @@ def start_or_resume_consultation(
     )
     # Fetch active consent if any
     consent = db.execute(
-        select(ConsentRecord).where(ConsentRecord.consultation_id == consultation.id)
-    ).scalar_one_or_none()
+        select(ConsentRecord)
+        .where(ConsentRecord.consultation_id == consultation.id)
+        .order_by(ConsentRecord.created_at.desc())
+    ).scalars().first()
 
     return ConsultationResponse(
         id=consultation.id,
@@ -89,8 +91,10 @@ def get_consultation(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultation session not found.")
 
     consent = db.execute(
-        select(ConsentRecord).where(ConsentRecord.consultation_id == consultation.id)
-    ).scalar_one_or_none()
+        select(ConsentRecord)
+        .where(ConsentRecord.consultation_id == consultation.id)
+        .order_by(ConsentRecord.created_at.desc())
+    ).scalars().first()
 
     return ConsultationResponse(
         id=consultation.id,

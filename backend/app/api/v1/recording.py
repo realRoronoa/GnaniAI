@@ -80,8 +80,8 @@ async def upload_consultation_audio(
             ConsentRecord.consultation_id == consultation_id,
             ConsentRecord.is_granted.is_(True),
             ConsentRecord.withdrawn_at.is_(None),
-        )
-    ).scalar_one_or_none()
+        ).order_by(ConsentRecord.created_at.desc())
+    ).scalars().first()
 
     if not consent:
         raise HTTPException(

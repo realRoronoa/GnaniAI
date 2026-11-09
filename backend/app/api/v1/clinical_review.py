@@ -61,8 +61,8 @@ def get_transcript(
         select(TranscriptVersion).where(
             TranscriptVersion.consultation_id == consultation_id,
             TranscriptVersion.is_current == True,
-        )
-    ).scalar_one_or_none()
+        ).order_by(TranscriptVersion.version_number.desc())
+    ).scalars().first()
 
     if not version:
         return {"version_number": 0, "full_text": "", "segments": []}
@@ -114,8 +114,8 @@ def edit_transcript(
         select(TranscriptVersion).where(
             TranscriptVersion.consultation_id == consultation_id,
             TranscriptVersion.is_current == True,
-        )
-    ).scalar_one_or_none()
+        ).order_by(TranscriptVersion.version_number.desc())
+    ).scalars().first()
 
     if not current_ver:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No transcript exists to edit.")

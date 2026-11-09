@@ -133,8 +133,8 @@ def edit_report(
         select(Report).where(
             Report.consultation_id == consultation_id,
             Report.report_type.in_(normalize_report_types(report_type)),
-        )
-    ).scalar_one_or_none()
+        ).order_by(Report.created_at.desc())
+    ).scalars().first()
 
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found for this encounter.")
@@ -144,8 +144,8 @@ def edit_report(
         .where(
             ReportVersion.report_id == report.id,
             ReportVersion.version_number == report.current_version_number,
-        )
-    ).scalar_one_or_none()
+        ).order_by(ReportVersion.version_number.desc())
+    ).scalars().first()
 
     markdown_content = data.rendered_markdown
     if not markdown_content:
@@ -274,7 +274,7 @@ def approve_consultation_reports(
 
     patient = db.get(Patient, consultation.patient_id)
     doctor = db.get(User, consultation.doctor_user_id)
-    doc_prof = db.execute(select(DoctorProfile).where(DoctorProfile.user_id == doctor.id)).scalar_one_or_none()
+    doc_prof = db.execute(select(DoctorProfile).where(DoctorProfile.user_id == doctor.id)).scalars().first()
     org = db.get(Organization, org_id)
 
     now = datetime.now(timezone.utc)
@@ -285,8 +285,8 @@ def approve_consultation_reports(
             select(ReportVersion).where(
                 ReportVersion.report_id == r.id,
                 ReportVersion.version_number == r.current_version_number,
-            )
-        ).scalar_one_or_none()
+            ).order_by(ReportVersion.version_number.desc())
+        ).scalars().first()
 
         if not current_ver:
             continue
@@ -414,7 +414,7 @@ def download_pdf(
             PdfAsset.consultation_id == consultation_id,
             PdfAsset.pdf_type == pdf_type,
         ).order_by(PdfAsset.generated_at.desc())
-    ).scalar_one_or_none()
+    ).scalars().first()
 
     if pdf_asset:
         try:
@@ -427,7 +427,7 @@ def download_pdf(
         org = db.get(Organization, org_id)
         doctor = db.get(User, consultation.doctor_user_id) if consultation.doctor_user_id else None
         doc_prof = (
-            db.execute(select(DoctorProfile).where(DoctorProfile.user_id == consultation.doctor_user_id)).scalar_one_or_none()
+            db.execute(select(DoctorProfile).where(DoctorProfile.user_id == consultation.doctor_user_id)).scalars().first()
             if consultation.doctor_user_id
             else None
         )
@@ -440,8 +440,8 @@ def download_pdf(
             select(Report).where(
                 Report.consultation_id == consultation_id,
                 Report.report_type == target_report_type,
-            )
-        ).scalar_one_or_none()
+            ).order_by(Report.created_at.desc())
+        ).scalars().first()
 
         current_ver = None
         if rep:
@@ -449,8 +449,8 @@ def download_pdf(
                 select(ReportVersion).where(
                     ReportVersion.report_id == rep.id,
                     ReportVersion.version_number == rep.current_version_number,
-                )
-            ).scalar_one_or_none()
+                ).order_by(ReportVersion.version_number.desc())
+            ).scalars().first()
 
         content_markdown = (
             current_ver.rendered_markdown
