@@ -109,7 +109,8 @@ async def health_check() -> dict[str, Any]:
     return {
         "status": "healthy",
         "service": settings.app_name,
-        "version": "0.1.0",
+        "version": "0.1.1",
+        "build": "49b8977",
         "environment": settings.app_env,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "ai_provider_mode": settings.ai_provider_mode,
