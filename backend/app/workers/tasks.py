@@ -5,7 +5,7 @@ import re
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -22,7 +22,9 @@ from app.models.clinical_reports import (
     ClinicalFact,
     ClinicalFactEvidence,
     MedicationInstruction,
+    PdfAsset,
     Report,
+    ReportApproval,
     ReportStatus,
     ReportType,
     ReportVersion,
@@ -55,7 +57,11 @@ def compute_sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def process_consultation_pipeline(db: Session, consultation_id: uuid.UUID) -> Consultation:
+def process_consultation_pipeline(
+    db: Session,
+    consultation_id: uuid.UUID,
+    transcript_text: str | None = None,
+) -> Consultation:
     """Core synchronous pipeline orchestrating the AI documentation workflow:
     1. Audio validation
     2. Transcription (Gnani Prisma/Mock)
@@ -89,6 +95,21 @@ def process_consultation_pipeline(db: Session, consultation_id: uuid.UUID) -> Co
 
     org_id = consultation.organization_id
     now = datetime.now(timezone.utc)
+
+    # -------------------------------------------------------------------------
+    # 0. Clean stale records for this consultation to avoid stale bleed / duplicate key errors
+    # -------------------------------------------------------------------------
+    db.execute(delete(PdfAsset).where(PdfAsset.consultation_id == consultation_id))
+    db.execute(delete(ReportApproval).where(ReportApproval.consultation_id == consultation_id))
+    db.execute(delete(ReportVersion).where(ReportVersion.consultation_id == consultation_id))
+    db.execute(delete(Report).where(Report.consultation_id == consultation_id))
+    db.execute(delete(MedicationInstruction).where(MedicationInstruction.consultation_id == consultation_id))
+    fact_ids_subq = select(ClinicalFact.id).where(ClinicalFact.consultation_id == consultation_id)
+    db.execute(delete(ClinicalFactEvidence).where(ClinicalFactEvidence.clinical_fact_id.in_(fact_ids_subq)))
+    db.execute(delete(ClinicalFact).where(ClinicalFact.consultation_id == consultation_id))
+    db.execute(delete(TranscriptSegment).where(TranscriptSegment.consultation_id == consultation_id))
+    db.execute(delete(TranscriptVersion).where(TranscriptVersion.consultation_id == consultation_id))
+    consultation.chief_complaint_summary = None
     consultation.status = ConsultationStatus.PROCESSING
     db.commit()
 
@@ -130,32 +151,54 @@ def process_consultation_pipeline(db: Session, consultation_id: uuid.UUID) -> Co
     db.add(stt_job)
     db.flush()
 
-    # Check if real live spoken text was recorded
-    live_transcript = None
-    try:
-        live_bytes = storage_service.get_object_bytes(f"orgs/{org_id}/consultations/{consultation.id}/audio/live_transcript.txt")
-        if live_bytes:
-            live_transcript = live_bytes.decode("utf-8").strip()
-    except Exception:
-        live_transcript = None
+    # Check if real live spoken text was passed or stored
+    live_transcript = transcript_text.strip() if (transcript_text and transcript_text.strip()) else None
+    if not live_transcript:
+        try:
+            live_bytes = storage_service.get_object_bytes(f"orgs/{org_id}/consultations/{consultation.id}/audio/live_transcript.txt")
+            if live_bytes:
+                live_transcript = live_bytes.decode("utf-8").strip()
+        except Exception:
+            live_transcript = None
 
-    if live_transcript and len(live_transcript) > 5:
-        sentences = [s.strip() for s in re.split(r'[.!?\n]+', live_transcript) if s.strip()]
+    if live_transcript and len(live_transcript) > 3:
+        raw_lines = [line.strip() for line in re.split(r'[\r\n]+', live_transcript) if line.strip()]
+        expanded_lines = []
+        for line in raw_lines:
+            if not re.match(r'^(doctor|dr|patient|pt)[\s:]', line, re.IGNORECASE):
+                sub_sentences = [s.strip() for s in re.split(r'[.!?]+', line) if len(s.strip()) > 3]
+                if sub_sentences:
+                    expanded_lines.extend(sub_sentences)
+                else:
+                    expanded_lines.append(line)
+            else:
+                expanded_lines.append(line)
+
         segments = []
         cur_time = 0
-        for i, s in enumerate(sentences):
-            duration = max(2000, len(s) * 80)
+        for i, s in enumerate(expanded_lines):
+            speaker = "DOCTOR" if i % 2 == 0 else "PATIENT"
+            clean_text = s
+            if re.match(r'^(doctor|dr)[\s:]+', s, re.IGNORECASE):
+                speaker = "DOCTOR"
+                clean_text = re.sub(r'^(doctor|dr)[\s:]+', '', s, flags=re.IGNORECASE).strip()
+            elif re.match(r'^(patient|pt)[\s:]+', s, re.IGNORECASE):
+                speaker = "PATIENT"
+                clean_text = re.sub(r'^(patient|pt)[\s:]+', '', s, flags=re.IGNORECASE).strip()
+
+            duration = max(2000, len(clean_text) * 75)
             segments.append(
                 TranscriptSegmentResult(
                     sequence_number=i + 1,
-                    speaker_label="DOCTOR" if i % 2 == 0 else "PATIENT",
+                    speaker_label=speaker,
                     start_time_ms=cur_time,
                     end_time_ms=cur_time + duration,
-                    text=s,
+                    text=clean_text or s,
                     confidence_score=0.98,
                 )
             )
             cur_time += duration + 500
+
         transcription_result = TranscriptionResult(
             full_text=live_transcript,
             language_detected=consent.language or "en-IN",

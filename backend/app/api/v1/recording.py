@@ -5,6 +5,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -163,12 +164,17 @@ async def upload_consultation_audio(
     }
 
 
+class ProcessConsultationRequest(BaseModel):
+    transcript_text: str | None = None
+
+
 @router.post("/consultations/{consultation_id}/process")
 def trigger_consultation_processing(
     consultation_id: uuid.UUID,
     org_id: Annotated[uuid.UUID, Depends(get_current_tenant_org_id)],
     membership: Annotated[OrganizationMembership, Depends(require_doctor)],
     db: Annotated[Session, Depends(get_db)],
+    payload: ProcessConsultationRequest | None = None,
 ) -> dict[str, Any]:
     """Runs the clinical AI pipeline (transcription, fact extraction, dual report generation)."""
     consultation = db.get(Consultation, consultation_id)
@@ -178,7 +184,18 @@ def trigger_consultation_processing(
     if consultation.doctor_user_id != membership.user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access to consultation.")
 
-    updated_cons = process_consultation_pipeline(db, consultation_id)
+    live_text = payload.transcript_text.strip() if (payload and payload.transcript_text) else None
+    if live_text:
+        try:
+            storage_service.put_object(
+                f"orgs/{org_id}/consultations/{consultation_id}/audio/live_transcript.txt",
+                live_text.encode("utf-8"),
+                "text/plain",
+            )
+        except Exception:
+            pass
+
+    updated_cons = process_consultation_pipeline(db, consultation_id, transcript_text=live_text)
 
     return {
         "message": "Consultation processed successfully.",

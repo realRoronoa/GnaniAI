@@ -40,6 +40,55 @@ import {
   Printer,
 } from 'lucide-react';
 
+const FactValueRenderer: React.FC<{ value: any }> = ({ value }) => {
+  let parsed = value;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      parsed = value;
+    }
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    return <span className="font-semibold text-ink text-sm">{String(parsed)}</span>;
+  }
+
+  const title = parsed.name || parsed.finding || parsed.condition || parsed.diagnosis || parsed.key || 'Clinical Observation';
+  const entries = Object.entries(parsed).filter(
+    ([k]) => !['name', 'finding', 'condition', 'diagnosis', 'key'].includes(k)
+  );
+
+  return (
+    <div className="space-y-1.5">
+      <div className="font-semibold text-ink text-sm">
+        {title}
+      </div>
+      {entries.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+          {entries.map(([k, v]) => {
+            const formattedKey = k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+            const displayVal = typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v);
+            const isNegative = v === false || displayVal.toLowerCase() === 'denied / absent' || displayVal.toLowerCase() === 'absent';
+            return (
+              <span
+                key={k}
+                className={`text-[11px] font-medium px-2 py-0.5 rounded border ${
+                  isNegative
+                    ? 'bg-status-rec-bg/30 text-status-err border-status-err/20'
+                    : 'bg-surface border-line text-text'
+                }`}
+              >
+                <strong className="text-ink">{formattedKey}:</strong> {displayVal}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const ConsultationStudioPage: React.FC = () => {
   const { consultationId } = useParams<{ consultationId: string }>();
   const navigate = useNavigate();
@@ -66,10 +115,16 @@ export const ConsultationStudioPage: React.FC = () => {
   const [recState, setRecState] = useState<'IDLE' | 'RECORDING' | 'PAUSED' | 'UPLOADING'>('IDLE');
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [liveTranscript, setLiveTranscript] = useState('');
+  const liveTranscriptRef = useRef<string>('');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const recognitionRef = useRef<any>(null);
+
+  const updateLiveTranscript = (text: string) => {
+    liveTranscriptRef.current = text;
+    setLiveTranscript(text);
+  };
 
   // Consent Form State
   const [consentLang, setConsentLang] = useState('hi');
@@ -218,7 +273,12 @@ export const ConsultationStudioPage: React.FC = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioChunksRef.current = [];
-      setLiveTranscript('');
+      updateLiveTranscript('');
+      // Clear pre-existing consultation stage data so stale mock data never bleeds in
+      setTranscriptData(null);
+      setFacts([]);
+      setMedications([]);
+      setReports([]);
 
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -235,7 +295,7 @@ export const ConsultationStudioPage: React.FC = () => {
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         stream.getTracks().forEach((track) => track.stop());
-        await uploadAudioBlob(audioBlob);
+        await uploadAudioBlob(audioBlob, liveTranscriptRef.current);
       };
 
       // Native browser speech recognition in background for live spoken capture
@@ -251,7 +311,7 @@ export const ConsultationStudioPage: React.FC = () => {
             for (let i = 0; i < evt.results.length; i++) {
               full += evt.results[i][0].transcript + ' ';
             }
-            setLiveTranscript(full.trim());
+            updateLiveTranscript(full.trim());
           };
           rec.onerror = () => {};
           rec.start();
@@ -305,15 +365,16 @@ export const ConsultationStudioPage: React.FC = () => {
     setTimerSeconds(0);
   };
 
-  const uploadAudioBlob = async (blob: Blob) => {
+  const uploadAudioBlob = async (blob: Blob, transcriptText?: string) => {
     setRecState('UPLOADING');
     setStatusBanner({ text: 'Uploading encounter audio to secure storage...', type: 'ok' });
 
     try {
+      const textToSend = (transcriptText !== undefined ? transcriptText : liveTranscriptRef.current).trim();
       const formData = new FormData();
       formData.append('audio_file', blob, 'consultation_audio.webm');
-      if (liveTranscript.trim()) {
-        formData.append('transcript_text', liveTranscript.trim());
+      if (textToSend) {
+        formData.append('transcript_text', textToSend);
       }
 
       await api.post(`/consultations/${consultationId}/audio`, formData, {
@@ -322,8 +383,8 @@ export const ConsultationStudioPage: React.FC = () => {
 
       setStatusBanner({ text: 'Audio uploaded successfully! Running clinical AI pipeline...', type: 'ok' });
 
-      // Automatically trigger AI Pipeline
-      await runAIPipeline();
+      // Automatically trigger AI Pipeline with the actual spoken transcript
+      await runAIPipeline(textToSend);
     } catch (err) {
       setStatusBanner({ text: `Audio upload failed: ${getErrorMessage(err)}`, type: 'err' });
       setRecState('IDLE');
@@ -356,17 +417,21 @@ export const ConsultationStudioPage: React.FC = () => {
       });
 
       setStatusBanner({ text: 'Sample audio uploaded. Triggering AI transcription & extraction...', type: 'ok' });
-      await runAIPipeline();
+      // Blank transcript signals fallback demo audio mock
+      await runAIPipeline('');
     } catch (err) {
       setStatusBanner({ text: `Synthetic pipeline run failed: ${getErrorMessage(err)}`, type: 'err' });
       setRecState('IDLE');
     }
   };
 
-  const runAIPipeline = async () => {
+  const runAIPipeline = async (transcriptText?: string) => {
     setIsProcessingAI(true);
     try {
-      await api.post(`/consultations/${consultationId}/process`);
+      const textToSend = (transcriptText !== undefined ? transcriptText : liveTranscriptRef.current).trim();
+      await api.post(`/consultations/${consultationId}/process`, {
+        transcript_text: textToSend || null,
+      });
       setStatusBanner({ text: 'AI processing completed! Transcript, Clinical Facts, and Draft Reports generated.', type: 'ok' });
       setRecState('IDLE');
       await loadConsultationData();
@@ -796,10 +861,23 @@ export const ConsultationStudioPage: React.FC = () => {
                   <textarea
                     rows={3}
                     value={liveTranscript}
-                    onChange={(e) => setLiveTranscript(e.target.value)}
+                    onChange={(e) => updateLiveTranscript(e.target.value)}
                     placeholder="Speak into your microphone or type consultation findings directly here... Your actual spoken words will be saved and official clinical reports generated from them."
                     className="w-full p-3 bg-surface-2/60 border border-line rounded-lg text-sm text-ink focus:outline-none focus:ring-1 focus:ring-ink"
                   />
+                  {liveTranscript.trim() && recState === 'IDLE' && (
+                    <div className="flex justify-end pt-1">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        isLoading={isProcessingAI}
+                        leftIcon={<Sparkles className="w-3.5 h-3.5" />}
+                        onClick={() => runAIPipeline(liveTranscriptRef.current)}
+                      >
+                        Process Dictated Spoken Notes with AI
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 {/* 1-Click Fallback Button for Testers Without Physical Mic */}
@@ -959,11 +1037,7 @@ export const ConsultationStudioPage: React.FC = () => {
                           </span>
                         </div>
 
-                        <div className="font-semibold text-ink text-sm">
-                          {typeof fact.fact_value === 'object'
-                            ? JSON.stringify(fact.fact_value)
-                            : String(fact.fact_value)}
-                        </div>
+                        <FactValueRenderer value={fact.fact_value} />
 
                         {/* Transcript Grounding Evidence */}
                         {fact.evidence && fact.evidence.length > 0 && (
