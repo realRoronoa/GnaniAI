@@ -514,9 +514,10 @@ export const ConsultationStudioPage: React.FC = () => {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      setStatusBanner({ text: 'Sample audio uploaded. Triggering sample AI demo pipeline...', type: 'ok' });
-      // Explicitly pass is_sample_demo = true ONLY for this button!
-      await runAIPipeline('', true);
+      setStatusBanner({ text: 'Audio uploaded. Processing AI pipeline...', type: 'ok' });
+      const domVal = textareaRef.current?.value?.trim() || '';
+      const textToSend = domVal || liveTranscriptRef.current;
+      await runAIPipeline(textToSend, false);
     } catch (err) {
       setStatusBanner({ text: `Synthetic pipeline run failed: ${getErrorMessage(err)}`, type: 'err' });
       setRecState('IDLE');

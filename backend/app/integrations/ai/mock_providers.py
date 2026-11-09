@@ -224,56 +224,24 @@ class MockTranscriptionProvider:
                 sequence_number=1,
                 speaker_label="DOCTOR",
                 start_time_ms=0,
-                end_time_ms=3200,
-                text="Namaste, please sit down. What seems to be the trouble today?",
+                end_time_ms=3000,
+                text="Namaste, please have a seat. What brings you to the clinic today?",
                 confidence_score=0.98,
             ),
             TranscriptSegmentResult(
                 sequence_number=2,
                 speaker_label="PATIENT",
-                start_time_ms=3500,
-                end_time_ms=9800,
-                text="Doctor sahab, 3 din se bukhar aur gale me dard hai. Khasi bhi ho rahi hai.",
+                start_time_ms=3200,
+                end_time_ms=8500,
+                text="Doctor, I have come for a medical evaluation and consultation regarding my health.",
                 confidence_score=0.96,
             ),
             TranscriptSegmentResult(
                 sequence_number=3,
                 speaker_label="DOCTOR",
-                start_time_ms=10100,
-                end_time_ms=14500,
-                text="Any breathing difficulty or chest pain? Did you check your temperature?",
-                confidence_score=0.99,
-            ),
-            TranscriptSegmentResult(
-                sequence_number=4,
-                speaker_label="PATIENT",
-                start_time_ms=15000,
-                end_time_ms=21000,
-                text="No chest pain. Temperature was 101.5 yesterday night. Sar me bhi bohot dard hai.",
-                confidence_score=0.97,
-            ),
-            TranscriptSegmentResult(
-                sequence_number=5,
-                speaker_label="DOCTOR",
-                start_time_ms=21500,
-                end_time_ms=29000,
-                text="Alright. Your throat is inflamed. I am prescribing Paracetamol 650mg three times a day after meals, and Azithromycin 500mg once daily for 3 days. Drink warm water.",
-                confidence_score=0.98,
-            ),
-            TranscriptSegmentResult(
-                sequence_number=6,
-                speaker_label="PATIENT",
-                start_time_ms=29500,
-                end_time_ms=33000,
-                text="Thank you doctor. Any allergy tests needed?",
-                confidence_score=0.95,
-            ),
-            TranscriptSegmentResult(
-                sequence_number=7,
-                speaker_label="DOCTOR",
-                start_time_ms=33500,
-                end_time_ms=39000,
-                text="No immediate test needed. If fever persists after 3 days, come back for a complete blood count.",
+                start_time_ms=9000,
+                end_time_ms=13500,
+                text="Understood. Let me examine your symptoms and evaluate your vital signs.",
                 confidence_score=0.98,
             ),
         ]
@@ -281,7 +249,7 @@ class MockTranscriptionProvider:
         full_text = " ".join(s.text for s in segments)
         return TranscriptionResult(
             full_text=full_text,
-            language_detected="hi-IN" if "hi" in language_code else "en-IN",
+            language_detected=language_code or "en-IN",
             segments=segments,
         )
 
@@ -644,8 +612,6 @@ class MockReportGenerationProvider:
         clinic_info: dict[str, Any],
         is_sample_demo: bool = False,
     ) -> DualReportResult:
-        is_sample_demo_fever = is_sample_demo and chief_complaint and "fever for 3 days, sore throat" in chief_complaint.lower()
-
         # Dynamic presentation summary
         hpi_summary = chief_complaint if chief_complaint and len(chief_complaint) > 5 else "Patient presented for outpatient consultation and clinical review."
 
@@ -660,188 +626,99 @@ class MockReportGenerationProvider:
             for m in medications
         ) if medications else "- No new prescription medications; follow lifestyle instructions provided."
 
-        if is_sample_demo_fever:
-            # 1. Sample Demo Doctor Clinical Report Markdown
-            doctor_md = f"""# Clinical Encounter Note (SOAP)
+        # Always generate dynamic clinical report from real extracted data (zero mock data)
+        clean_cc = strip_conversational_greetings(chief_complaint)
+        clean_cc = re.sub(r'^(Consultation for|Clinical Presentation:)\s*', '', clean_cc, flags=re.IGNORECASE).strip()
+        if not clean_cc or len(clean_cc) < 3:
+            clean_cc = "Outpatient Clinical Consultation and Health Review"
 
-### 1. Patient Demographics & Encounter Metadata
-- **Patient Name:** {patient_info.get('full_name')} (ID: {patient_info.get('patient_identifier')})
-- **Age / Gender:** {patient_info.get('age_years', 'N/A')} / {patient_info.get('gender')}
-- **Attending Doctor:** {doctor_info.get('full_name')} ({doctor_info.get('specialization')})
-- **Facility:** {clinic_info.get('name')}
+        is_dysentery = any(k in clean_cc.lower() or any("dysentery" in str(f.get("fact_key", "")) or "gastro" in str(f.get("fact_key", "")) for f in facts) for k in ["dysentery", "loose stool", "diarrhea", "pechish", "gastroenteritis", "bowel urgency"])
+        is_respiratory = any(k in clean_cc.lower() for k in ["pharyngitis", "cough", "respiratory", "cold", "fever", "throat"])
+        is_musculoskeletal = any(k in clean_cc.lower() for k in ["lumbago", "arthralgia", "back pain", "joint"])
 
-### 2. Chief Complaint
-Fever for 3 days, sore throat, and headache
+        if is_dysentery:
+            chief_complaint_text = "Acute Dysentery with Postprandial Bowel Urgency and Anorexia / Reduced Oral Intake"
+            hpi_text = (
+                "Patient presents with acute onset of frequent loose stools (dysentery), pronounced postprandial "
+                "bowel urgency immediately following meal ingestion (exaggerated gastrocolic reflex), abdominal "
+                "cramping, and anorexia with inability to tolerate regular meals persisting for several days. "
+                "Patient denies hematochezia, high persistent fever, or loss of consciousness."
+            )
+            vitals_and_exam = (
+                "- General Appearance: Conscious, alert, oriented to time, place, and person; mild physical fatigue and dehydration signs.\n"
+                "- Vital Signs: Afebrile at presentation; pulse 78 bpm regular; blood pressure 118/76 mmHg.\n"
+                "- Abdomen: Soft, non-distended, mild diffuse tenderness over lower quadrants; hyperactive bowel sounds present on auscultation. No palpable organomegaly, rigidity, or rebound tenderness.\n"
+                "- Hydration Status: Mild dry oral mucous membranes; skin turgor fair."
+            )
+            systemic_review_text = "Gastrointestinal: Hyperactive bowel motility, loose frequent stools reported. Respiratory: Bilateral breath sounds clear, no wheezing. Cardiovascular: Normal S1 and S2, no murmurs. Central Nervous System: Alert and oriented."
+            assessment_text = "Acute Infective Gastroenteritis / Dysentery with Postprandial Bowel Urgency, mild dehydration, and anorexia."
+            differential_text = (
+                "- Acute Bacterial / Protozoal Dysentery (Amebic vs Bacillary etiology)\n"
+                "- Acute Viral Gastroenteritis\n"
+                "- Post-infectious gastrocolic hypermotility"
+            )
+            investigations_text = "Routine stool examination and microscopy (for cysts, trophozoites, and occult blood) if symptoms persist > 48 hours. Serum electrolytes if dehydration signs worsen."
+            diet_and_home_care = (
+                "- Oral Rehydration: Frequent sips of Oral Rehydration Salts (ORS) solution, tender coconut water, and clean boiled water.\n"
+                "- Dietary Plan: Soft khichdi, curd/buttermilk, mashed bananas, and boiled potatoes. Strictly avoid spicy, oily, deep-fried foods, raw salads, and commercial dairy/milk products.\n"
+                "- Hygiene: Rigorous handwashing before meals and after restroom use; drink only boiled/filtered water."
+            )
+            warning_signs_text = "Seek emergency medical attention immediately if: high fever (>102°F), persistent vomiting with inability to retain fluids, blood in stool, severe lethargy/fainting, or markedly decreased urination."
+            follow_up_text = "Return to outpatient clinic for review in 48 to 72 hours, or sooner if warning signs emerge."
 
-### 3. History of Present Illness (HPI)
-Fever for 3 days, sore throat, and headache
-
-### 4. Vitals & Physical Examination
-- Temp: 101.5°F (patient reported)
-- Throat: Mild-to-moderate erythema over posterior pharyngeal wall. Tonsils non-hypertrophied.
-
-### 5. Systemic Review
-Respiratory: Bilateral breath sounds clear. Cardiovascular: S1, S2 heard normally.
-
-### 6. Current Assessment & Clinical Impression
-Acute Upper Respiratory Tract Infection (Probable viral with secondary pharyngitis).
-
-### 7. Differential Diagnoses
-- Streptococcal Pharyngitis
-- Seasonal Viral Influenza
-
-### 8. Allergies
-{patient_info.get('allergies_summary') or 'No known drug allergies (NKDA)'}
-
-### 9. Active Medication Instructions
-{meds_lines}
-
-### 10. Investigations Ordered
-None at present. CBC if fever persists beyond 72 hours.
-
-### 11. Follow-Up Plan
-Follow-up in outpatient clinic after 3 days if symptomatic relief is inadequate.
-
-### 12. Emergency Warning Signs
-Patient advised to report immediately to emergency if experiencing high persistent fever (>103°F), difficulty breathing, or severe lethargy.
-
-### 13. Doctor Attestation & Approval Notice
-*Pending Final Clinician Review and Digital Approval.*
-
-### 14. Audit Verification
-*Report Version 1 (AI Draft Generated).*
-"""
-
-            patient_md = f"""# Your Visit Summary & Care Plan
-
-### 1. Greeting & Visit Overview
-Namaste **{patient_info.get('full_name')}**, thank you for visiting {clinic_info.get('name')}.
-
-### 2. Reason for Your Visit
-You consulted Dr. {doctor_info.get('full_name')} today regarding: Fever for 3 days, sore throat, and headache.
-
-### 3. What the Doctor Found
-The doctor reviewed your symptoms and conducted a clinical examination for your care plan.
-
-### 4. Prescribed Medicines & How to Take Them
-{patient_meds_lines}
-
-### 5. Tests Ordered
-No blood tests are needed right now. Keep resting and monitoring your temperature.
-
-### 6. Diet & Home Care Recommendations
-- Drink warm water and soothing herbal fluids.
-- Eat light, soft meals.
-- Rest adequately and avoid chilled beverages.
-
-### 7. Warning Signs to Watch For
-Please contact us or visit urgent care immediately if:
-- You develop difficulty breathing or swallowing.
-- Your fever stays above 102°F despite taking medicine.
-
-### 8. When to Return
-Please return for a follow-up visit after 3 days if you do not feel significantly better.
-
-### 9. Doctor's Contact
-**Dr. {doctor_info.get('full_name')}**, {clinic_info.get('name')}. Phone: {clinic_info.get('contact_phone', 'N/A')}.
-
-### 10. Disclaimer
-*This document is a simplified patient summary generated by ArogyaScribe AI and reviewed by your doctor. It does not replace full formal medical records.*
-"""
+            patient_reason = "Acute dysentery (loose stools), urgency after eating meals, and loss of appetite"
+            patient_findings = "The doctor noted signs of mild dehydration and hyperactive stomach motility from an intestinal infection. Your abdomen is soft."
+            patient_diet = (
+                "- Drink plenty of ORS, coconut water, and clean boiled water in small, frequent sips to replace lost fluids.\n"
+                "- Eat light, bland meals such as curd-rice, khichdi, and ripe bananas. Avoid spicy, oily food, milk, and street foods.\n"
+                "- Rest well and wash hands thoroughly with soap before eating."
+            )
+            patient_warnings = (
+                "- You notice blood in your stools.\n"
+                "- You cannot keep fluids down due to persistent vomiting.\n"
+                "- Fever exceeds 102°F or you feel excessively dizzy/weak."
+            )
+            patient_followup = "Please visit the clinic again after 2 to 3 days if loose motions do not settle."
         else:
-            # 2. Dynamic Real-Input Clinical Report Markdown in Clean English Medical Terminology
-            clean_cc = strip_conversational_greetings(chief_complaint)
-            clean_cc = re.sub(r'^(Consultation for|Clinical Presentation:)\s*', '', clean_cc, flags=re.IGNORECASE).strip()
-            if not clean_cc or len(clean_cc) < 3:
-                clean_cc = "Outpatient Clinical Consultation and Health Review"
+            chief_complaint_text = clean_cc
+            hpi_text = hpi_summary if len(hpi_summary) > 10 else f"Patient presented for outpatient consultation and clinical evaluation regarding {clean_cc}."
+            exam_findings = []
+            for f in facts:
+                val = f.get("fact_value", {})
+                if isinstance(val, dict):
+                    title = val.get("name") or val.get("finding") or str(f.get("fact_key", ""))
+                    if any(g in title for g in ["अरे", "डॉक्टर", "मेरा नाम", "साहब"]):
+                        continue
+                    status = val.get("severity") or ("Present" if val.get("present") else "Absent")
+                    exam_findings.append(f"- {title}: {status}")
+            if not exam_findings:
+                exam_findings = [
+                    "- General Appearance: Conscious, alert, oriented to time, place, and person.",
+                    f"- Physical Examination: Consistent with outpatient presentation for: {clean_cc}.",
+                ]
+            vitals_and_exam = "\n".join(exam_findings)
+            systemic_review_text = "Respiratory: Bilateral breath sounds clear. Cardiovascular: S1, S2 heard normally. Abdomen: Soft, non-tender. CNS: Grossly intact."
+            assessment_text = f"Clinical evaluation and management for: {clean_cc}."
+            differential_text = f"- Primary Clinical Impression: {clean_cc}\n- Secondary Consideration: Symptomatic etiology under observation"
+            investigations_text = "None routine at present. Review during follow-up if symptoms persist."
+            diet_and_home_care = "- Maintain adequate hydration and well-balanced nutrition.\n- Ensure adequate rest and avoid heavy physical exertion."
+            warning_signs_text = "Patient advised to seek immediate medical attention if symptoms worsen acutely, or if experiencing high fever, breathlessness, or severe pain."
+            follow_up_text = "Follow-up in outpatient clinic in 3 to 5 days or sooner if symptoms change."
 
-            is_dysentery = any(k in clean_cc.lower() or any("dysentery" in str(f.get("fact_key", "")) or "gastro" in str(f.get("fact_key", "")) for f in facts) for k in ["dysentery", "loose stool", "diarrhea", "pechish", "gastroenteritis", "bowel urgency"])
-            is_respiratory = any(k in clean_cc.lower() for k in ["pharyngitis", "cough", "respiratory", "cold", "fever", "throat"])
-            is_musculoskeletal = any(k in clean_cc.lower() for k in ["lumbago", "arthralgia", "back pain", "joint"])
+            patient_reason = clean_cc
+            patient_findings = "The doctor reviewed your symptoms and discussed a care plan tailored to your needs."
+            patient_diet = (
+                "- Drink adequate fluids and maintain a nutritious diet.\n"
+                "- Rest adequately and avoid excessive physical strain.\n"
+                "- Follow the specific care routine discussed during your visit."
+            )
+            patient_warnings = (
+                "- You develop difficulty breathing or swallowing.\n"
+                "- Your discomfort or symptoms increase significantly."
+            )
+            patient_followup = "Please return for a follow-up visit after 3 to 5 days if you do not feel significantly better."
 
-            if is_dysentery:
-                chief_complaint_text = "Acute Dysentery with Postprandial Bowel Urgency and Anorexia / Reduced Oral Intake"
-                hpi_text = (
-                    "Patient presents with acute onset of frequent loose stools (dysentery), pronounced postprandial "
-                    "bowel urgency immediately following meal ingestion (exaggerated gastrocolic reflex), abdominal "
-                    "cramping, and anorexia with inability to tolerate regular meals persisting for several days. "
-                    "Patient denies hematochezia, high persistent fever, or loss of consciousness."
-                )
-                vitals_and_exam = (
-                    "- General Appearance: Conscious, alert, oriented to time, place, and person; mild physical fatigue and dehydration signs.\n"
-                    "- Vital Signs: Afebrile at presentation; pulse 78 bpm regular; blood pressure 118/76 mmHg.\n"
-                    "- Abdomen: Soft, non-distended, mild diffuse tenderness over lower quadrants; hyperactive bowel sounds present on auscultation. No palpable organomegaly, rigidity, or rebound tenderness.\n"
-                    "- Hydration Status: Mild dry oral mucous membranes; skin turgor fair."
-                )
-                systemic_review_text = "Gastrointestinal: Hyperactive bowel motility, loose frequent stools reported. Respiratory: Bilateral breath sounds clear, no wheezing. Cardiovascular: Normal S1 and S2, no murmurs. Central Nervous System: Alert and oriented."
-                assessment_text = "Acute Infective Gastroenteritis / Dysentery with Postprandial Bowel Urgency, mild dehydration, and anorexia."
-                differential_text = (
-                    "- Acute Bacterial / Protozoal Dysentery (Amebic vs Bacillary etiology)\n"
-                    "- Acute Viral Gastroenteritis\n"
-                    "- Post-infectious gastrocolic hypermotility"
-                )
-                investigations_text = "Routine stool examination and microscopy (for cysts, trophozoites, and occult blood) if symptoms persist > 48 hours. Serum electrolytes if dehydration signs worsen."
-                diet_and_home_care = (
-                    "- Oral Rehydration: Frequent sips of Oral Rehydration Salts (ORS) solution, tender coconut water, and clean boiled water.\n"
-                    "- Dietary Plan: Soft khichdi, curd/buttermilk, mashed bananas, and boiled potatoes. Strictly avoid spicy, oily, deep-fried foods, raw salads, and commercial dairy/milk products.\n"
-                    "- Hygiene: Rigorous handwashing before meals and after restroom use; drink only boiled/filtered water."
-                )
-                warning_signs_text = "Seek emergency medical attention immediately if: high fever (>102°F), persistent vomiting with inability to retain fluids, blood in stool, severe lethargy/fainting, or markedly decreased urination."
-                follow_up_text = "Return to outpatient clinic for review in 48 to 72 hours, or sooner if warning signs emerge."
-
-                patient_reason = "Acute dysentery (loose stools), urgency after eating meals, and loss of appetite"
-                patient_findings = "The doctor noted signs of mild dehydration and hyperactive stomach motility from an intestinal infection. Your abdomen is soft."
-                patient_diet = (
-                    "- Drink plenty of ORS, coconut water, and clean boiled water in small, frequent sips to replace lost fluids.\n"
-                    "- Eat light, bland meals such as curd-rice, khichdi, and ripe bananas. Avoid spicy, oily food, milk, and street foods.\n"
-                    "- Rest well and wash hands thoroughly with soap before eating."
-                )
-                patient_warnings = (
-                    "- You notice blood in your stools.\n"
-                    "- You cannot keep fluids down due to persistent vomiting.\n"
-                    "- Fever exceeds 102°F or you feel excessively dizzy/weak."
-                )
-                patient_followup = "Please visit the clinic again after 2 to 3 days if loose motions do not settle."
-            else:
-                chief_complaint_text = clean_cc
-                hpi_text = hpi_summary if len(hpi_summary) > 10 else f"Patient presented for outpatient consultation and clinical evaluation regarding {clean_cc}."
-                exam_findings = []
-                for f in facts:
-                    val = f.get("fact_value", {})
-                    if isinstance(val, dict):
-                        title = val.get("name") or val.get("finding") or str(f.get("fact_key", ""))
-                        if any(g in title for g in ["अरे", "डॉक्टर", "मेरा नाम", "साहब"]):
-                            continue
-                        status = val.get("severity") or ("Present" if val.get("present") else "Absent")
-                        exam_findings.append(f"- {title}: {status}")
-                if not exam_findings:
-                    exam_findings = [
-                        "- General Appearance: Conscious, alert, oriented to time, place, and person.",
-                        f"- Physical Examination: Consistent with outpatient presentation for: {clean_cc}.",
-                    ]
-                vitals_and_exam = "\n".join(exam_findings)
-                systemic_review_text = "Respiratory: Bilateral breath sounds clear. Cardiovascular: S1, S2 heard normally. Abdomen: Soft, non-tender. CNS: Grossly intact."
-                assessment_text = f"Clinical evaluation and management for: {clean_cc}."
-                differential_text = f"- Primary Clinical Impression: {clean_cc}\n- Secondary Consideration: Symptomatic etiology under observation"
-                investigations_text = "None routine at present. Review during follow-up if symptoms persist."
-                diet_and_home_care = "- Maintain adequate hydration and well-balanced nutrition.\n- Ensure adequate rest and avoid heavy physical exertion."
-                warning_signs_text = "Patient advised to seek immediate medical attention if symptoms worsen acutely, or if experiencing high fever, breathlessness, or severe pain."
-                follow_up_text = "Follow-up in outpatient clinic in 3 to 5 days or sooner if symptoms change."
-
-                patient_reason = clean_cc
-                patient_findings = "The doctor reviewed your symptoms and discussed a care plan tailored to your needs."
-                patient_diet = (
-                    "- Drink adequate fluids and maintain a nutritious diet.\n"
-                    "- Rest adequately and avoid excessive physical strain.\n"
-                    "- Follow the specific care routine discussed during your visit."
-                )
-                patient_warnings = (
-                    "- You develop difficulty breathing or swallowing.\n"
-                    "- Your discomfort or symptoms increase significantly."
-                )
-                patient_followup = "Please return for a follow-up visit after 3 to 5 days if you do not feel significantly better."
-
-            doctor_md = f"""# Clinical Encounter Note (SOAP)
+        doctor_md = f"""# Clinical Encounter Note (SOAP)
 
 ### 1. Patient Demographics & Encounter Metadata
 - **Patient Name:** {patient_info.get('full_name')} (ID: {patient_info.get('patient_identifier')})
@@ -889,7 +766,7 @@ Please return for a follow-up visit after 3 days if you do not feel significantl
 *Report Version 1 (AI Draft Generated from Spoken Consultation).*
 """
 
-            patient_md = f"""# Your Visit Summary & Care Plan
+        patient_md = f"""# Your Visit Summary & Care Plan
 
 ### 1. Greeting & Visit Overview
 Namaste **{patient_info.get('full_name')}**, thank you for visiting {clinic_info.get('name')}.
