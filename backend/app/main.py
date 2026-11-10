@@ -266,6 +266,26 @@ def wipe_database_endpoint() -> dict[str, Any]:
     return wipe_all_tenant_data()
 
 
+@app.get("/api/v1/health/db-status")
+def database_status_endpoint() -> dict[str, Any]:
+    """Diagnostic endpoint: returns tenant counts and user emails."""
+    from app.db.session import SessionLocal
+    from app.models.tenant import User, Organization
+    from app.models.consultations_audio import Consultation
+    with SessionLocal() as db:
+        users = db.execute(select(User)).scalars().all()
+        orgs = db.execute(select(Organization)).scalars().all()
+        cons = db.execute(select(Consultation)).scalars().all()
+        return {
+            "users_count": len(users),
+            "users": [{"email": u.email, "full_name": u.full_name, "is_super_admin": u.is_super_admin} for u in users],
+            "orgs_count": len(orgs),
+            "orgs": [{"id": str(o.id), "name": o.name} for o in orgs],
+            "consultations_count": len(cons),
+            "consultations": [{"id": str(c.id), "status": str(c.status)} for c in cons[-5:]],
+        }
+
+
 @app.get("/", include_in_schema=False)
 async def root_redirect() -> JSONResponse:
     return JSONResponse(
