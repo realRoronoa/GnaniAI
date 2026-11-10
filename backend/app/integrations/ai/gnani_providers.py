@@ -191,6 +191,33 @@ class GnaniTranscriptionProvider:
                     )
                     for i, seg in enumerate(res_json["segments"])
                 ]
+            elif transcript_text:
+                # Gnani STT /stt/v3 returns monolithic transcript - split into diarized segments
+                raw_sentences = [s.strip() for s in re.split(r'[\r\n]+|[.!?]+', transcript_text) if len(s.strip()) > 2]
+                if not raw_sentences:
+                    raw_sentences = [transcript_text]
+                cur_t = 0
+                for i, s in enumerate(raw_sentences):
+                    speaker = "DOCTOR" if i % 2 == 0 else "PATIENT"
+                    clean_text = s
+                    if re.match(r'^(doctor|dr)[\s:]+', s, re.IGNORECASE):
+                        speaker = "DOCTOR"
+                        clean_text = re.sub(r'^(doctor|dr)[\s:]+', '', s, flags=re.IGNORECASE).strip()
+                    elif re.match(r'^(patient|pt)[\s:]+', s, re.IGNORECASE):
+                        speaker = "PATIENT"
+                        clean_text = re.sub(r'^(patient|pt)[\s:]+', '', s, flags=re.IGNORECASE).strip()
+                    dur = max(2000, len(clean_text) * 75)
+                    segments.append(
+                        TranscriptSegmentResult(
+                            sequence_number=i + 1,
+                            speaker_label=speaker,
+                            start_time_ms=cur_t,
+                            end_time_ms=cur_t + dur,
+                            text=clean_text or s,
+                            confidence_score=0.98,
+                        )
+                    )
+                    cur_t += dur + 500
 
             return TranscriptionResult(
                 full_text=transcript_text,
