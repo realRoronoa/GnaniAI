@@ -15,6 +15,7 @@ class TranscriptionResult(BaseModel):
     full_text: str
     language_detected: str
     segments: list[TranscriptSegmentResult]
+    provider_metadata: dict[str, Any] = {}
 
 
 class ExtractedClinicalFact(BaseModel):

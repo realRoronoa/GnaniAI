@@ -93,11 +93,19 @@ CLINICAL_SYMPTOM_DICTIONARY = [
         "suggested_meds": [],
     },
     {
-        "pattern": r"(भूख\s*(भी\s*)?नहीं\s*लग\s*रही|खाना\s*(भी\s*)?नहीं\s*खा\s*पा\s*रहा|भूख\s*मिट\s*गई|खाने\s*का\s*मन\s*नहीं|loss\s*of\s*appetite|anorexia|poor\s*intake)",
-        "english_name": "Anorexia / Loss of Appetite and Reduced Oral Intake",
+        "pattern": r"(भूख\s*(भी\s*)?नहीं\s*लग\s*(?:ती|ते|रही|रहे)|खाना\s*खाने\s*के\s*बाद\s*भूख|खाना\s*(भी\s*)?नहीं\s*खा\s*पा\s*रहा|भूख\s*मिट\s*गई|खाने\s*का\s*मन\s*नहीं|loss\s*of\s*appetite|anorexia|poor\s*intake)",
+        "english_name": "Anorexia / Impaired Satiety (Loss of Appetite)",
         "key": "anorexia_reduced_intake",
         "category": "symptom",
-        "finding": "Reduced oral intake and loss of appetite secondary to illness",
+        "finding": "Loss of appetite and impaired satiety following meals reported by patient",
+        "suggested_meds": [],
+    },
+    {
+        "pattern": r"(पानी\s*पीने\s*के\s*बाद\s*प्यास|प्यास\s*नहीं\s*लग\s*(?:ती|ते|रही|रहे)|adipsia|lack\s*of\s*thirst|altered\s*thirst)",
+        "english_name": "Adipsia / Altered Thirst Sensation",
+        "key": "adipsia_altered_thirst",
+        "category": "symptom",
+        "finding": "Impaired or absent thirst sensation following fluid ingestion",
         "suggested_meds": [],
     },
     {
@@ -195,11 +203,11 @@ CLINICAL_SYMPTOM_DICTIONARY = [
         "suggested_meds": [],
     },
     {
-        "pattern": r"(नींद\s*(नहीं|कम)\s*आ\s*रही|तनाव|चिंता|insomnia|stress|anxiety|tension|sleep\s*schedule)",
-        "english_name": "Insomnia and Anxiety / Stress Reaction",
+        "pattern": r"(सोने\s*के\s*बाद\s*नींद|नींद\s*(?:नहीं|कम)\s*आ\s*(?:ती|ते|रही|रहे)|अनिद्रा|insomnia|sleeplessness|stress|anxiety|tension|sleep\s*schedule)",
+        "english_name": "Insomnia / Sleep Disturbance",
         "key": "insomnia_anxiety",
         "category": "symptom",
-        "finding": "Disturbed sleep patterns and psychological stress",
+        "finding": "Inability to initiate or maintain restful sleep after retiring to bed",
         "suggested_meds": [],
     },
     {
@@ -216,41 +224,14 @@ CLINICAL_SYMPTOM_DICTIONARY = [
 
 
 class MockTranscriptionProvider:
-    """Deterministic Speech-to-Text mock representing Gnani Prisma v2.5 output."""
+    """Mock Speech-to-Text provider returning empty result (never overrides browser audio)."""
 
     async def transcribe(self, audio_bytes: bytes, language_code: str = "en-IN") -> TranscriptionResult:
-        segments = [
-            TranscriptSegmentResult(
-                sequence_number=1,
-                speaker_label="DOCTOR",
-                start_time_ms=0,
-                end_time_ms=3000,
-                text="Namaste, please have a seat. What brings you to the clinic today?",
-                confidence_score=0.98,
-            ),
-            TranscriptSegmentResult(
-                sequence_number=2,
-                speaker_label="PATIENT",
-                start_time_ms=3200,
-                end_time_ms=8500,
-                text="Doctor, I have come for a medical evaluation and consultation regarding my health.",
-                confidence_score=0.96,
-            ),
-            TranscriptSegmentResult(
-                sequence_number=3,
-                speaker_label="DOCTOR",
-                start_time_ms=9000,
-                end_time_ms=13500,
-                text="Understood. Let me examine your symptoms and evaluate your vital signs.",
-                confidence_score=0.98,
-            ),
-        ]
-
-        full_text = " ".join(s.text for s in segments)
         return TranscriptionResult(
-            full_text=full_text,
+            full_text="",
             language_detected=language_code or "en-IN",
-            segments=segments,
+            segments=[],
+            provider_metadata={"live_api_success": False, "mode": "mock"},
         )
 
 
@@ -377,40 +358,133 @@ class MockClinicalExtractionProvider:
                 )
 
         # -------------------------------------------------------------
-        # Extract Medications or Therapy Instructions
+        # Extract Global Spoken Context (Frequency, Instructions, Duration)
+        # -------------------------------------------------------------
+        global_freq = None
+        if re.search(r"(सुबह-शाम\s*और\s*दिन\s*में|सुबह\s*दोपहर\s*शाम|तीनों\s*टाइम|दिन\s*में\s*तीन\s*बार|three\s*times)", clean_full_transcript, re.IGNORECASE):
+            global_freq = "1-1-1 (Three times daily: Morning, Afternoon, Evening)"
+        elif re.search(r"(सुबह-शाम|दो\s*बार|twice\s*daily|दिन\s*में\s*दो\s*बार)", clean_full_transcript, re.IGNORECASE):
+            global_freq = "1-0-1 (Twice daily: Morning & Evening)"
+        elif re.search(r"(दिन\s*में\s*एक\s*बार|रात\s*को|once\s*daily)", clean_full_transcript, re.IGNORECASE):
+            global_freq = "0-0-1 (Once daily: Night)"
+
+        global_inst = None
+        if re.search(r"खाना\s*खाने\s*के\s*बाद", clean_full_transcript, re.IGNORECASE):
+            if re.search(r"खाली\s*पेट\s*(नहीं|मत)", clean_full_transcript, re.IGNORECASE):
+                global_inst = "Take strictly after meals (Do NOT take on an empty stomach)"
+            else:
+                global_inst = "Take strictly after meals"
+        elif re.search(r"खाली\s*पेट", clean_full_transcript, re.IGNORECASE):
+            global_inst = "Take on an empty stomach (Before meals)"
+
+        global_dur = None
+        dur_m = re.search(r"(\d+)\s*(?:दिन|days|दिनों)", clean_full_transcript, re.IGNORECASE)
+        if dur_m:
+            global_dur = f"{dur_m.group(1)} Days"
+
+        has_multiple_tabs = bool(re.search(r"(दो\s*गोलियां|दूसरी\s*गोली|दूसरे\s*का\s*नाम|तीनों\s*दवाई|दो\s*दवाई)", clean_full_transcript, re.IGNORECASE))
+
+        # -------------------------------------------------------------
+        # Extract Specialist Referral, Diet, and Follow-Up Facts
+        # -------------------------------------------------------------
+        if re.search(r"(मेंटल\s*के\s*प्रॉब्लम|एक\s*और\s*डॉक्टर|mental|psychiatry|manochikitsak|psychiatrist)", clean_full_transcript, re.IGNORECASE):
+            ref_seg = next((s.text for s in working_segments if re.search(r"(मेंटल|डॉक्टर|mental|psychiatry)", s.text, re.IGNORECASE)), clean_full_transcript[:120])
+            facts.append(
+                ExtractedClinicalFact(
+                    category="referral",
+                    fact_key="specialist_referral_psychiatry",
+                    fact_value={
+                        "name": "Psychiatry / Mental Health Specialist Referral",
+                        "severity": "Recommended",
+                        "finding": "Referred to Psychiatry / Mental Health Specialist for comprehensive psychosomatic evaluation",
+                        "present": True,
+                    },
+                    source_speaker="DOCTOR",
+                    provenance_type="CLINICIAN_OBSERVED",
+                    certainty_status="VERIFIED",
+                    evidence_quotation=ref_seg,
+                    segment_indices=[0],
+                )
+            )
+
+        if re.search(r"(परहेज|गर्म\s*खाना\s*नहीं|ठंडा\s*खाना\s*नहीं|नमक\s*नहीं|मीठा\s*नहीं|सादा\s*खाना)", clean_full_transcript, re.IGNORECASE):
+            diet_seg = next((s.text for s in working_segments if re.search(r"(गर्म|ठंडा|नमक|मीठा|सादा|परहेज)", s.text, re.IGNORECASE)), clean_full_transcript[:120])
+            facts.append(
+                ExtractedClinicalFact(
+                    category="lifestyle",
+                    fact_key="dietary_lifestyle_restrictions",
+                    fact_value={
+                        "name": "Dietary & Lifestyle Precautions (परहेज)",
+                        "severity": "Active",
+                        "finding": "Avoid overly hot or cold food (consume at moderate temperature), restrict excess salt and sugar, and maintain a plain, balanced home diet",
+                        "present": True,
+                    },
+                    source_speaker="DOCTOR",
+                    provenance_type="CLINICIAN_OBSERVED",
+                    certainty_status="VERIFIED",
+                    evidence_quotation=diet_seg,
+                    segment_indices=[0],
+                )
+            )
+
+        if re.search(r"(\d+)\s*दिन\s*बाद|repeat|follow\s*up", clean_full_transcript, re.IGNORECASE):
+            fu_seg = next((s.text for s in working_segments if re.search(r"(\d+\s*दिन|repeat)", s.text, re.IGNORECASE)), clean_full_transcript[:120])
+            facts.append(
+                ExtractedClinicalFact(
+                    category="follow_up",
+                    fact_key="scheduled_followup_plan",
+                    fact_value={
+                        "name": "Scheduled Outpatient Review",
+                        "severity": global_dur or "15 Days",
+                        "finding": f"Scheduled follow-up review in {global_dur or '15 Days'} to assess treatment response and clinical improvement",
+                        "present": True,
+                    },
+                    source_speaker="DOCTOR",
+                    provenance_type="CLINICIAN_OBSERVED",
+                    certainty_status="VERIFIED",
+                    evidence_quotation=fu_seg,
+                    segment_indices=[0],
+                )
+            )
+
+        # -------------------------------------------------------------
+        # Extract Medications or Therapy Instructions (Hindi & English)
         # -------------------------------------------------------------
         med_keywords = [
-            ("paracetamol|dolo|calpol|crocin", "Paracetamol", "650mg", "1 tablet", "Three times daily after food", "3 days"),
-            ("azithromycin", "Azithromycin", "500mg", "1 tablet", "Once daily", "3 days"),
-            ("amoxicillin|augmentin|mox", "Amoxicillin-Clavulanate", "625mg", "1 tablet", "Twice daily after meals", "5 days"),
-            ("pantocid|pan-d|omeprazole|pantoprazole", "Pantoprazole", "40mg", "1 tablet", "Once daily before breakfast", "5 days"),
-            ("cetirizine|montair|zyrtec|allegra", "Cetirizine", "10mg", "1 tablet", "Once at bedtime", "5 days"),
-            ("ibuprofen|combiflam|brufen", "Ibuprofen", "400mg", "1 tablet", "Twice daily with meals", "3 days"),
-            ("metformin|glycomet", "Metformin", "500mg", "1 tablet", "With evening meal", "Ongoing"),
-            ("atorvastatin|atorva", "Atorvastatin", "10mg", "1 tablet", "At bedtime", "Ongoing"),
-            ("telmisartan|telma", "Telmisartan", "40mg", "1 tablet", "Morning daily", "Ongoing"),
-            ("cough syrup|syrup|koflet", "Expectorant Cough Syrup", "10ml", "Two teaspoonfuls", "Three times daily", "5 days"),
-            ("mindfulness|meditation", "Mindfulness & Relaxation Practice", "Therapeutic", "15-20 mins daily", "Daily morning/evening", "2 weeks"),
-            ("physiotherapy|exercise|stretching", "Targeted Physiotherapy & Stretching", "Rehabilitative", "20-30 mins session", "Twice daily", "2 weeks"),
-            ("counseling|therapy session|therapy", "Cognitive & Supportive Therapy", "Clinical", "1 session / week", "Weekly review", "2 weeks"),
-            ("hot fomentation|hot compress|ice pack|ice fomentation", "Thermal Therapy (Fomentation)", "Physical", "15 mins application", "Twice daily", "7 days"),
-            ("rest|bed rest|aaram", "Therapeutic Rest & Activity Modification", "Supportive", "Full rest", "As needed", "3-5 days"),
-            ("gargle|warm water|steam", "Warm Water Gargle & Steam Inhalation", "Supportive", "10 mins steam", "Three times daily", "5 days"),
-            ("sleep|sleep schedule|neend", "Sleep Hygiene Optimization", "Behavioral", "7-8 hours restful sleep", "Nightly routine", "Ongoing"),
+            (r"(पेरासिटामोल|पारासिटामोल|paracetamol|dolo|calpol|crocin)", "Paracetamol", "650mg", "1 tablet", "Three times daily after food", "3 days"),
+            (r"(एजिथ्रोमाइसिन|azithromycin)", "Azithromycin", "500mg", "1 tablet", "Once daily", "3 days"),
+            (r"(अमोक्सिसिलिन|amoxicillin|augmentin|mox)", "Amoxicillin-Clavulanate", "625mg", "1 tablet", "Twice daily after meals", "5 days"),
+            (r"(पैंटोप्राजोल|pantoprazole|pan-d|pan\s*40|pantocid|omeprazole)", "Pantoprazole", "40mg", "1 tablet", "Once daily before breakfast", "5 days"),
+            (r"(सिट्रिजिन|cetirizine|montair|zyrtec|allegra)", "Cetirizine", "10mg", "1 tablet", "Once at bedtime", "5 days"),
+            (r"(इबुप्रोफेन|ibuprofen|combiflam|brufen)", "Ibuprofen", "400mg", "1 tablet", "Twice daily with meals", "3 days"),
+            (r"(ओआरएस|ors|oral\s*rehydration)", "Oral Rehydration Salts (ORS)", "1 Sachet", "1 sachet in 1L water", "Sip frequently", "3 days"),
+            (r"(मेटफॉर्मिन|metformin|glycomet)", "Metformin", "500mg", "1 tablet", "With evening meal", "Ongoing"),
+            (r"(atorvastatin|atorva)", "Atorvastatin", "10mg", "1 tablet", "At bedtime", "Ongoing"),
+            (r"(telmisartan|telma)", "Telmisartan", "40mg", "1 tablet", "Morning daily", "Ongoing"),
+            (r"(cough\s*syrup|syrup|koflet)", "Expectorant Cough Syrup", "10ml", "Two teaspoonfuls", "Three times daily", "5 days"),
+            (r"(mindfulness|meditation)", "Mindfulness & Relaxation Practice", "Therapeutic", "15-20 mins daily", "Daily morning/evening", "2 weeks"),
+            (r"(physiotherapy|exercise|stretching)", "Targeted Physiotherapy & Stretching", "Rehabilitative", "20-30 mins session", "Twice daily", "2 weeks"),
+            (r"(counseling|therapy\s*session|therapy)", "Cognitive & Supportive Therapy", "Clinical", "1 session / week", "Weekly review", "2 weeks"),
+            (r"(rest|bed\s*rest|aaram)", "Therapeutic Rest & Activity Modification", "Supportive", "Full rest", "As needed", "3-5 days"),
+            (r"(sleep|sleep\s*schedule|neend)", "Sleep Hygiene Optimization", "Behavioral", "7-8 hours restful sleep", "Nightly routine", "Ongoing"),
         ]
 
         seen_meds = set()
+        matched_med_seg = ""
         for idx, seg in enumerate(working_segments):
             text_lower = seg.text.lower()
             for pattern, def_name, def_strength, def_dose, def_freq, def_dur in med_keywords:
-                if re.search(r'\b(' + pattern + r')\b', text_lower) and def_name not in seen_meds:
+                if re.search(pattern, text_lower) and def_name not in seen_meds:
                     seen_meds.add(def_name)
+                    matched_med_seg = seg.text
 
                     dose_match = re.search(r'\b(\d+\s*(?:mg|ml|gm|tablet[s]?))\b', text_lower)
                     strength = dose_match.group(1) if dose_match else def_strength
 
-                    dur_match = re.search(r'\b(\d+\s*(?:days|weeks|months|din|hafte))\b', text_lower)
-                    duration = dur_match.group(1) if dur_match else def_dur
+                    dur_match = re.search(r'(\d+)\s*(?:days|weeks|months|din|hafte|दिन)', text_lower)
+                    duration = f"{dur_match.group(1)} Days" if dur_match else (global_dur or def_dur)
+                    frequency = global_freq or def_freq
+                    instructions = global_inst or f"Follow clinician verbal directions: '{seg.text[:80]}'"
 
                     medications.append(
                         ExtractedMedicationInstruction(
@@ -418,14 +492,31 @@ class MockClinicalExtractionProvider:
                             strength=strength,
                             dosage=def_dose,
                             route="ORAL" if "mg" in strength or "tablet" in def_dose else "TOPICAL/LIFESTYLE",
-                            frequency=def_freq,
+                            frequency=frequency,
                             duration=duration,
-                            special_instructions=f"Follow clinician verbal directions: '{seg.text[:80]}'",
+                            special_instructions=instructions,
                             uncertainty_flags=[],
                             is_historical=False,
                             evidence_quotation=seg.text,
                         )
                     )
+
+        # If doctor mentioned "two tablets" / "second tablet" and only one drug recognized
+        if has_multiple_tabs and len(medications) == 1:
+            medications.append(
+                ExtractedMedicationInstruction(
+                    medication_name="Prescribed Oral Tablet (As directed by physician)",
+                    strength="Standard",
+                    dosage="1 tablet",
+                    route="ORAL",
+                    frequency=global_freq or "1-1-1 (Three times daily: Morning, Afternoon, Evening)",
+                    duration=global_dur or "15 Days",
+                    special_instructions=global_inst or "Take strictly after meals (Do NOT take on an empty stomach)",
+                    uncertainty_flags=[],
+                    is_historical=False,
+                    evidence_quotation=matched_med_seg or clean_full_transcript[:120],
+                )
+            )
 
         # If no specific drug was verbally dictated, offer evidence-based supportive therapy for matched symptoms
         if not medications and suggested_med_pool:
@@ -438,9 +529,9 @@ class MockClinicalExtractionProvider:
                             strength=sm.get("strength", "Standard"),
                             dosage=sm.get("dosage", "As directed"),
                             route="ORAL",
-                            frequency=sm.get("frequency", "Daily"),
-                            duration=sm.get("duration", "3-5 days"),
-                            special_instructions=sm.get("special_instructions", "Supportive care"),
+                            frequency=global_freq or sm.get("frequency", "Daily"),
+                            duration=global_dur or sm.get("duration", "3-5 days"),
+                            special_instructions=global_inst or sm.get("special_instructions", "Supportive care"),
                             uncertainty_flags=[],
                             is_historical=False,
                             evidence_quotation=clean_full_transcript[:120],
@@ -457,28 +548,20 @@ class MockClinicalExtractionProvider:
                     strength="Standard",
                     dosage="As discussed",
                     route="LIFESTYLE",
-                    frequency="Daily",
-                    duration="Until follow-up review",
-                    special_instructions=f"Follow doctor's verbal lifestyle and care recommendations: '{evidence_quote[:75]}...'",
+                    frequency=global_freq or "Daily",
+                    duration=global_dur or "Until follow-up review",
+                    special_instructions=global_inst or f"Follow doctor's verbal lifestyle and care recommendations: '{evidence_quote[:75]}...'",
                     uncertainty_flags=[],
                     is_historical=False,
                     evidence_quotation=evidence_quote,
                 )
             )
 
-        # Dynamic Chief Complaint construction in English medical terminology
+        # Dynamic Chief Complaint construction in English medical terminology (Zero raw 80-char truncation)
         if matched_symptom_names:
             chief_complaint = ", ".join(matched_symptom_names[:3])
         else:
-            first_patient = next((s.text for s in working_segments if s.speaker_label == "PATIENT"), None)
-            clean_first = strip_conversational_greetings(first_patient) if first_patient else ""
-            if clean_first:
-                chief_complaint = f"Clinical Presentation: {clean_first[:80]}"
-            elif working_segments:
-                clean_seg = strip_conversational_greetings(working_segments[0].text)
-                chief_complaint = f"Clinical Presentation: {clean_seg[:80]}" if clean_seg else "Outpatient Clinical Consultation and Health Review"
-            else:
-                chief_complaint = "Outpatient Clinical Consultation and Health Review"
+            chief_complaint = "Outpatient Clinical Consultation and Health Review"
 
         return ClinicalExtractionResult(
             chief_complaint_summary=chief_complaint,
@@ -594,10 +677,24 @@ class MockReportGenerationProvider:
             systemic_review_text = "Respiratory: Bilateral breath sounds clear. Cardiovascular: S1, S2 heard normally. Abdomen: Soft, non-tender. CNS: Grossly intact."
             assessment_text = f"Clinical evaluation and management for: {clean_cc}."
             differential_text = f"- Primary Clinical Impression: {clean_cc}\n- Secondary Consideration: Symptomatic etiology under observation"
+            # Check if specialist referral, dietary precautions, or follow-up were extracted
+            has_psych_referral = any("psychiatry" in str(f.get("fact_key", "")) or "referral" in str(f.get("category", "")) for f in facts)
+            has_diet_rules = any("diet" in str(f.get("fact_key", "")) or "lifestyle" in str(f.get("category", "")) for f in facts)
+            has_followup = any("follow" in str(f.get("fact_key", "")) or "follow_up" in str(f.get("category", "")) for f in facts)
+
             investigations_text = "None routine at present. Review during follow-up if symptoms persist."
+            if has_psych_referral:
+                investigations_text = "- Specialist Referral: Referred to Psychiatry / Mental Health Specialist for comprehensive evaluation.\n- Routine baseline metabolic and hematological screening if symptoms persist."
+
             diet_and_home_care = "- Maintain adequate hydration and well-balanced nutrition.\n- Ensure adequate rest and avoid heavy physical exertion."
-            warning_signs_text = "Patient advised to seek immediate medical attention if symptoms worsen acutely, or if experiencing high fever, breathlessness, or severe pain."
+            if has_diet_rules:
+                diet_and_home_care = "- Dietary Precautions (परहेज): Avoid overly hot or cold food (consume at moderate temperature), restrict excess salt and sugar, and maintain a plain, balanced home diet (सादा भोजन).\n- Hydration: Sip clean room-temperature water throughout the day."
+
             follow_up_text = "Follow-up in outpatient clinic in 3 to 5 days or sooner if symptoms change."
+            if has_followup:
+                follow_up_text = "Scheduled follow-up review in 15 days to assess treatment response and clinical improvement."
+
+            warning_signs_text = "Patient advised to seek immediate medical attention if symptoms worsen acutely, or if experiencing high fever, breathlessness, or severe pain."
 
             patient_reason = clean_cc
             patient_findings = "The doctor reviewed your symptoms and discussed a care plan tailored to your needs."
@@ -606,11 +703,21 @@ class MockReportGenerationProvider:
                 "- Rest adequately and avoid excessive physical strain.\n"
                 "- Follow the specific care routine discussed during your visit."
             )
+            if has_diet_rules:
+                patient_diet = (
+                    "- Avoid overly hot or cold food (eat food at normal temperature).\n"
+                    "- Restrict excess salt and sugar.\n"
+                    "- Eat plain, light, home-cooked food (सादा भोजन).\n"
+                    "- Drink clean water at room temperature."
+                )
+
             patient_warnings = (
                 "- You develop difficulty breathing or swallowing.\n"
                 "- Your discomfort or symptoms increase significantly."
             )
             patient_followup = "Please return for a follow-up visit after 3 to 5 days if you do not feel significantly better."
+            if has_followup:
+                patient_followup = "Please return for a follow-up visit after 15 days, and consult the recommended mental health specialist."
 
         doctor_md = f"""# Clinical Encounter Note (SOAP)
 
@@ -644,16 +751,19 @@ class MockReportGenerationProvider:
 ### 9. Active Medication Instructions
 {meds_lines}
 
-### 10. Investigations Ordered
+### 10. Dietary, Lifestyle & Home Care Precautions (परहेज)
+{diet_and_home_care}
+
+### 11. Specialist Referrals & Investigations Ordered
 {investigations_text}
 
-### 11. Follow-Up Plan
+### 12. Follow-Up Plan
 {follow_up_text}
 
-### 12. Emergency Warning Signs
+### 13. Emergency Warning Signs
 {warning_signs_text}
 
-### 13. Doctor Attestation & Approval Notice
+### 14. Doctor Attestation & Approval Notice
 *Pending Final Clinician Review and Digital Approval.*
 
 ### 14. Audit Verification

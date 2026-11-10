@@ -106,20 +106,123 @@ app.include_router(reports_router, prefix="/api/v1")
 )
 async def health_check() -> dict[str, Any]:
     """Returns the operational status, environment, and active integration modes."""
+    eff_key = settings.get_effective_gnani_key()
+    has_key = bool(eff_key)
+    preview = (eff_key[:6] + "..." + eff_key[-4:]) if len(eff_key) > 10 else ("***" if eff_key else "NOT_SET")
     return {
         "status": "healthy",
         "service": settings.app_name,
-        "version": "0.1.4",
-        "build": "telemetry-live",
+        "version": "0.1.5",
+        "build": "official-gnani-live",
         "environment": settings.app_env,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "ai_provider_mode": settings.ai_provider_mode,
-        "has_gnani_key": bool(settings.gnani_api_key and settings.gnani_api_key.strip() and not settings.gnani_api_key.startswith("YOUR_")),
-        "gnani_key_preview": (settings.gnani_api_key[:6] + "..." + settings.gnani_api_key[-4:]) if (settings.gnani_api_key and len(settings.gnani_api_key) > 10) else ("SET_SHORT" if settings.gnani_api_key else "NOT_SET"),
+        "ai_provider_mode": settings.AI_PROVIDER,
+        "has_gnani_key": has_key,
+        "gnani_key_preview": preview,
         "gnani_base_url": settings.gnani_base_url,
         "payment_mode": settings.payment_mode,
         "database_connected": bool(engine),
     }
+
+
+@app.get(
+    "/api/v1/health/ai-live-test",
+    tags=["System"],
+    summary="Live Gnani AI verification test",
+    status_code=status.HTTP_200_OK,
+)
+@app.get(
+    "/api/v1/health/gnani-test",
+    tags=["System"],
+    summary="Live Gnani AI verification test (alias)",
+    status_code=status.HTTP_200_OK,
+)
+async def gnani_live_diagnostic_test() -> dict[str, Any]:
+    """Sends 1 lightweight verification request to the configured Gnani STT endpoint and returns live metrics."""
+    import struct
+    import time
+
+    effective_key = settings.get_effective_gnani_key()
+    has_key = bool(effective_key)
+    masked_key = (effective_key[:6] + "..." + effective_key[-4:]) if len(effective_key) > 10 else ("***" if effective_key else "NOT_SET")
+    base_url = (getattr(settings, "gnani_base_url", None) or "https://api.vachana.ai").rstrip("/")
+    endpoint = f"{base_url}/stt/v3"
+
+    res_data: dict[str, Any] = {
+        "gnani_api_key_detected": has_key,
+        "key_preview": masked_key,
+        "key_length": len(effective_key),
+        "active_provider_mode": settings.AI_PROVIDER,
+        "base_url": base_url,
+        "endpoint_called": endpoint,
+        "http_status_code": None,
+        "latency_ms": None,
+        "sent_headers": {
+            "X-API-Key-ID": masked_key,
+            "X-API-Key": masked_key,
+            "Authorization": f"Bearer {masked_key}",
+        },
+        "response_body": None,
+        "live_connection_success": False,
+        "message": "",
+    }
+
+    if not has_key:
+        res_data["message"] = "No active GNANI_API_KEY detected in environment variables. Set GNANI_API_KEY on Render."
+        return res_data
+
+    # Generate minimal 0.1s 16kHz mono silence WAV (3,244 bytes)
+    sample_rate = 16000
+    num_samples = 1600
+    data_size = num_samples * 2
+    tiny_wav = (
+        b"RIFF"
+        + struct.pack("<I", 36 + data_size)
+        + b"WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00"
+        + struct.pack("<I", sample_rate)
+        + struct.pack("<I", sample_rate * 2)
+        + b"\x02\x00\x10\x00data"
+        + struct.pack("<I", data_size)
+        + (b"\x00" * data_size)
+    )
+
+    headers = {
+        "X-API-Key-ID": effective_key,
+        "X-API-Key": effective_key,
+        "Authorization": f"Bearer {effective_key}",
+        "Accept": "application/json",
+    }
+    files = {"audio_file": ("test_silence.wav", tiny_wav, "audio/wav")}
+    data = {
+        "model": "prisma-v3.0",
+        "language_code": "indic-auto",
+        "format": "transcribe",
+    }
+
+    t0 = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(endpoint, headers=headers, files=files, data=data)
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            res_data["latency_ms"] = latency_ms
+            res_data["http_status_code"] = response.status_code
+            try:
+                res_data["response_body"] = response.json()
+            except Exception:
+                res_data["response_body"] = response.text[:300]
+
+            res_data["live_connection_success"] = response.status_code == 200
+            res_data["message"] = (
+                "Gnani STT API live verified successfully!"
+                if response.status_code == 200
+                else f"Gnani STT returned HTTP {response.status_code}"
+            )
+    except Exception as exc:
+        latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+        res_data["latency_ms"] = latency_ms
+        res_data["message"] = f"Connection failed: {exc}"
+
+    return res_data
 
 
 @app.get("/", include_in_schema=False)

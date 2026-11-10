@@ -21,20 +21,25 @@ from app.integrations.ai.mock_providers import (
 )
 
 
+def is_gnani_active() -> bool:
+    """Returns True if a live Gnani API key exists or AI_PROVIDER_MODE is gnani."""
+    return settings.has_active_gnani_key or settings.ai_provider_mode == "gnani"
+
+
 def get_transcription_provider() -> TranscriptionProvider:
-    if settings.ai_provider_mode == "gnani":
+    if is_gnani_active():
         return GnaniTranscriptionProvider()
     return MockTranscriptionProvider()
 
 
 def get_clinical_extraction_provider() -> ClinicalExtractionProvider:
-    if settings.ai_provider_mode == "gnani":
+    if is_gnani_active():
         return GnaniClinicalExtractionProvider()
     return MockClinicalExtractionProvider()
 
 
 def get_report_generation_provider() -> ReportGenerationProvider:
-    if settings.ai_provider_mode == "gnani":
+    if is_gnani_active():
         return GnaniReportGenerationProvider()
     return MockReportGenerationProvider()
 
@@ -44,6 +49,6 @@ def get_translation_provider() -> TranslationProvider:
 
 
 def get_tts_provider() -> TextToSpeechProvider:
-    if settings.ai_provider_mode == "gnani":
+    if is_gnani_active():
         return GnaniTextToSpeechProvider()
     return MockTextToSpeechProvider()

@@ -196,22 +196,24 @@ def process_consultation_pipeline(
 
     transcription_result = None
 
-    # Dispatch audio to STT if in Gnani mode and audio is present
-    if settings.ai_provider_mode == "gnani" and audio_bytes and len(audio_bytes) > 50:
+    # Check if a genuine Gnani API key is configured or active
+    is_live_gnani = settings.has_active_gnani_key or settings.ai_provider_mode == "gnani"
+    if is_live_gnani and audio_bytes and len(audio_bytes) > 50:
         try:
             stt_provider = get_transcription_provider()
-            logger.info("Dispatching audio to Gnani Prisma STT for consultation %s (%d bytes)", consultation.id, len(audio_bytes))
+            logger.info("Dispatching audio to Gnani STT for consultation %s (%d bytes)", consultation.id, len(audio_bytes))
             res = asyncio.run(
                 stt_provider.transcribe(audio_bytes, consent.language or "en-IN")
             )
-            if res and res.full_text and len(res.full_text.strip()) > 3:
+            # CRITICAL RULE: Only adopt if live API succeeded and returned non-empty transcript
+            if res and res.provider_metadata.get("live_api_success") is True and res.full_text and len(res.full_text.strip()) > 3:
                 transcription_result = res
         except Exception as e:
             logger.warning("Gnani STT call encountered an exception (%s). Falling back gracefully.", e)
             transcription_result = None
 
     if transcription_result is None:
-        # Dynamically build diarized transcript from live transcript or consultation dialogue
+        # 100% preserve the user's browser-captured transcript_text. Never overwrite with dummy sentences!
         effective_text = (live_transcript or "").strip()
         if not effective_text:
             transcription_result = TranscriptionResult(

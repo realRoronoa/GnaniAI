@@ -236,3 +236,78 @@ async def test_hindi_dysentery_transcript_deduplication_and_clean_english_soap()
     )
     assert len(pdf_bytes) > 5000
 
+
+@pytest.mark.asyncio
+async def test_user_exact_hindi_consultation_extraction_and_reports():
+    """Verifies extraction and dual report generation from the user's exact Hindi clinical recording."""
+    user_hindi_transcript = (
+        "हेलो नमस्ते डॉक्टर एक्चुअल में मुझे थोड़ी बहुत सी प्रॉब्लम है जैसे कि मुझे खाना खाने के बाद भूख नहीं लगती "
+        "सोने के बाद नींद नहीं आते और पानी पीने के बाद प्यास नहीं लगती है। "
+        "डॉक्टर: मैं आपको दो गोलियां दूंगा एक गोली का नाम है पेरासिटामोल और दूसरे का नाम है... "
+        "सुबह-शाम और दिन में, याद रखें इन तीनों दवाई को खाना खाने के बाद लेना खाली पेट नहीं लेना। "
+        "साथ ही साथ आपको एक और डॉक्टर के पास जाना है जिस डॉक्टर का मेंटल के प्रॉब्लम में दिखेगा। "
+        "15 दिन बाद मुझे रिपीट करेंगे। "
+        "गर्म खाना नहीं खाना है ज्यादा ठंडा खाना भी नहीं खाना है, ज्यादा नमक नहीं खाना है और ज्यादा मीठा भी नहीं खाना एकदम नॉर्मल सादा खाना।"
+    )
+
+    extractor = MockClinicalExtractionProvider()
+    result = await extractor.extract_clinical_data(user_hindi_transcript, [], is_sample_demo=False)
+
+    # 1. Assert Symptoms: Anorexia, Insomnia, Adipsia
+    fact_keys = [f.fact_key for f in result.facts]
+    assert "anorexia_reduced_intake" in fact_keys
+    assert "insomnia_anxiety" in fact_keys
+    assert "adipsia_altered_thirst" in fact_keys
+
+    # 2. Assert Referral, Diet, and Follow-Up Facts
+    assert "specialist_referral_psychiatry" in fact_keys
+    assert "dietary_lifestyle_restrictions" in fact_keys
+    assert "scheduled_followup_plan" in fact_keys
+
+    # 3. Assert Medications: Paracetamol and prescribed tablet with 1-1-1, after meals, 15 days
+    med_names = [m.medication_name for m in result.medications]
+    assert any("Paracetamol" in m for m in med_names)
+    assert any("Prescribed Oral Tablet" in m for m in med_names)
+
+    pcm = next(m for m in result.medications if "Paracetamol" in m.medication_name)
+    assert "1-1-1" in pcm.frequency or "Three times" in pcm.frequency
+    assert "after meals" in pcm.special_instructions.lower()
+    assert "empty stomach" in pcm.special_instructions.lower()
+    assert "15 Days" in pcm.duration
+
+    # 4. Assert Chief Complaint is professional medical terminology and NOT truncated
+    assert "Namaste, please have a seat" not in result.chief_complaint_summary
+    assert "regarding my healt" not in result.chief_complaint_summary
+    assert len(result.chief_complaint_summary) > 10
+
+    # 5. Dual Reports Generation
+    report_gen = MockReportGenerationProvider()
+    reports = await report_gen.generate_dual_reports(
+        chief_complaint=result.chief_complaint_summary,
+        facts=[f.model_dump() for f in result.facts],
+        medications=[m.model_dump() for m in result.medications],
+        patient_info={"full_name": "विनय कुमार", "patient_identifier": "ARC-2026-0777", "age_years": 29, "gender": "MALE"},
+        doctor_info={"full_name": "Dr. Aman Nautiyal", "specialization": "General Physician"},
+        clinic_info={"name": "ArogyaScribe Center", "contact_phone": "+919876543210"},
+        is_sample_demo=False,
+    )
+
+    doc_md = reports.doctor_clinical_markdown
+    pat_md = reports.patient_summary_markdown
+
+    # Assert Specialist Referral, 15-day follow-up, and Dietary Restrictions in reports
+    assert "Psychiatry / Mental Health Specialist" in doc_md
+    assert "15 days" in doc_md.lower()
+    assert "सादा भोजन" in doc_md or "plain, balanced home diet" in doc_md.lower()
+
+    assert "Paracetamol" in pat_md
+    assert "15 days" in pat_md.lower() or "15" in pat_md
+    assert "सादा भोजन" in pat_md or "plain, light, home-cooked food" in pat_md.lower()
+
+    # Zero dummy text
+    assert "Namaste, please have a seat" not in doc_md
+    assert "regarding my healt" not in doc_md
+    assert "Namaste, please have a seat" not in pat_md
+    assert "regarding my healt" not in pat_md
+
+

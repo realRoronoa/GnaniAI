@@ -65,15 +65,30 @@ class Settings(BaseSettings):
     ai_provider_mode: Literal["mock", "gnani"] = "mock"
     gnani_api_key: str = ""
     gnani_base_url: str = "https://api.vachana.ai"
-    gnani_stt_model: str = "prisma-v2.5"
+    gnani_stt_model: str = "prisma-v3.0"
     gnani_llm_model: str = "evon-v3.3"
     gnani_tts_model: str = "timbre-v2.5"
     gnani_tts_voice: str = "Nalini"
-    gnani_max_live_calls: int = 6
+    gnani_max_live_calls: int = 1000
     gnani_cache_dir: str = "./storage/gnani_cache"
+
+    def get_effective_gnani_key(self) -> str:
+        """Finds active Gnani/Vachana API key across all supported environment variables."""
+        for var in ["GNANI_API_KEY", "VACHANA_API_KEY", "GNANI_TOKEN", "API_KEY"]:
+            val = (os.getenv(var) or getattr(self, "gnani_api_key", None) or "").strip()
+            if val and val != "YOUR_GNANI_API_KEY_HERE" and not val.startswith("YOUR_"):
+                return val
+        return ""
+
+    @property
+    def has_active_gnani_key(self) -> bool:
+        return bool(self.get_effective_gnani_key())
 
     @property
     def AI_PROVIDER(self) -> str:
+        # Auto-activate live Gnani if any valid key is provided in environment
+        if self.has_active_gnani_key:
+            return "gnani"
         return self.ai_provider_mode
 
     @property
