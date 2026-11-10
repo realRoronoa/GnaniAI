@@ -277,13 +277,35 @@ def database_status_endpoint() -> dict[str, Any]:
         users = db.execute(select(User)).scalars().all()
         orgs = db.execute(select(Organization)).scalars().all()
         cons = db.execute(select(Consultation)).scalars().all()
+        last_cons_info = None
+        if cons:
+            c = cons[-1]
+            from app.models.consultations_audio import TranscriptVersion, TranscriptSegment
+            from app.models.clinical_reports import ClinicalFact, MedicationInstruction, Report
+            t_ver = db.execute(select(TranscriptVersion).where(TranscriptVersion.consultation_id == c.id)).scalars().first()
+            segs = db.execute(select(TranscriptSegment).where(TranscriptSegment.consultation_id == c.id)).scalars().all() if t_ver else []
+            facts = db.execute(select(ClinicalFact).where(ClinicalFact.consultation_id == c.id)).scalars().all()
+            meds = db.execute(select(MedicationInstruction).where(MedicationInstruction.consultation_id == c.id)).scalars().all()
+            reports = db.execute(select(Report).where(Report.consultation_id == c.id)).scalars().all()
+            last_cons_info = {
+                "id": str(c.id),
+                "status": str(c.status),
+                "chief_complaint": c.chief_complaint_summary,
+                "transcript_full_text": t_ver.full_text if t_ver else None,
+                "segments_count": len(segs),
+                "segments": [{"speaker": s.speaker_label.value if hasattr(s.speaker_label, 'value') else str(s.speaker_label), "text": s.original_text} for s in segs],
+                "facts_count": len(facts),
+                "medications_count": len(meds),
+                "medications": [m.medication_name for m in meds],
+                "reports_count": len(reports),
+            }
         return {
             "users_count": len(users),
             "users": [{"email": u.email, "full_name": u.full_name, "is_super_admin": u.is_super_admin} for u in users],
             "orgs_count": len(orgs),
             "orgs": [{"id": str(o.id), "name": o.name} for o in orgs],
             "consultations_count": len(cons),
-            "consultations": [{"id": str(c.id), "status": str(c.status)} for c in cons[-5:]],
+            "last_consultation": last_cons_info,
         }
 
 
