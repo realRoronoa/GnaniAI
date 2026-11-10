@@ -11,6 +11,7 @@ import os
 import sys
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from typing import Any
 import uuid
 
 from sqlalchemy import create_engine, select
@@ -46,6 +47,116 @@ from app.models.tenant import (
     ReceptionistProfile,
     User,
 )
+
+
+def wipe_all_tenant_data(db_session: Session | None = None) -> dict[str, Any]:
+    """Completely clears all organizations, locations, doctors, receptionists,
+    patients, appointments, consultations, transcripts, facts, medications,
+    and reports from the database.
+    Strictly preserves SuperAdmin and SubscriptionPlans.
+    """
+    close_after = False
+    if db_session is None:
+        db = SessionLocal()
+        close_after = True
+    else:
+        db = db_session
+
+    try:
+        from sqlalchemy import delete
+        from app.models.clinical_reports import (
+            ClinicalFact,
+            ClinicalFactEvidence,
+            MedicationInstruction,
+            PdfAsset,
+            Report,
+            ReportApproval,
+            ReportVersion,
+        )
+        from app.models.consultations_audio import (
+            AudioAsset,
+            ConsentRecord,
+            Consultation,
+            TranscriptSegment,
+            TranscriptVersion,
+        )
+        from app.models.patients_appointments import (
+            Appointment,
+            DoctorSchedule,
+            Patient,
+        )
+        from app.models.subscriptions import (
+            PaymentTransaction,
+            Subscription,
+            UsageRecord,
+        )
+        from app.models.system_audit import (
+            AuditEvent,
+            ProcessingJob,
+            SecureShareGrant,
+        )
+        from app.models.tenant import (
+            DoctorProfile,
+            Organization,
+            OrganizationLocation,
+            OrganizationMembership,
+            ReceptionistProfile,
+            User,
+        )
+
+        # 1. Audit and Share Grants
+        db.execute(delete(SecureShareGrant))
+        db.execute(delete(AuditEvent))
+        db.execute(delete(ProcessingJob))
+
+        # 2. Reports and Clinical Evidence
+        db.execute(delete(PdfAsset))
+        db.execute(delete(ReportApproval))
+        db.execute(delete(ReportVersion))
+        db.execute(delete(Report))
+        db.execute(delete(MedicationInstruction))
+        db.execute(delete(ClinicalFactEvidence))
+        db.execute(delete(ClinicalFact))
+
+        # 3. Transcripts & Audio
+        db.execute(delete(TranscriptSegment))
+        db.execute(delete(TranscriptVersion))
+        db.execute(delete(AudioAsset))
+        db.execute(delete(ConsentRecord))
+
+        # 4. Consultations & Appointments
+        db.execute(delete(Consultation))
+        db.execute(delete(Appointment))
+        db.execute(delete(DoctorSchedule))
+        db.execute(delete(Patient))
+
+        # 5. Profiles & Memberships
+        db.execute(delete(DoctorProfile))
+        db.execute(delete(ReceptionistProfile))
+        db.execute(delete(OrganizationMembership))
+
+        # 6. Usage & Subscriptions
+        db.execute(delete(UsageRecord))
+        db.execute(delete(PaymentTransaction))
+        db.execute(delete(Subscription))
+
+        # 7. Locations & Organizations
+        db.execute(delete(OrganizationLocation))
+        db.execute(delete(Organization))
+
+        # 8. All non-superadmin Users
+        db.execute(delete(User).where(User.is_super_admin == False))
+
+        db.commit()
+
+        # Re-ensure SuperAdmin and Subscription Plans are present
+        seed_essentials(target_engine=db.get_bind(), target_session_factory=lambda: db)
+
+        print("[WIPE] Database wiped 100% clean of all tenant data. SuperAdmin & Plans intact.")
+        return {"status": "success", "message": "All tenant data wiped clean. Ready for fresh doctor and clinic onboarding."}
+    finally:
+        if close_after:
+            db.close()
 
 
 def clean_mock_data(db_session: Session | None = None) -> dict[str, int]:

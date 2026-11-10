@@ -28,11 +28,11 @@ logger = logging.getLogger("arogyascribe")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Startup and shutdown events handler: auto-provisions schema, ensures plans and demo accounts."""
+    """Startup and shutdown events handler: auto-provisions schema and ensures essential plans."""
     Base.metadata.create_all(bind=engine)
     try:
-        from scripts.seed_demo import seed
-        seed()
+        from scripts.seed_demo import seed_essentials
+        seed_essentials()
     except Exception as e:
         logger.warning("Startup database initialization notice: %s", e)
     yield
@@ -252,6 +252,15 @@ async def gnani_live_diagnostic_test() -> dict[str, Any]:
     )
 
     return res_data
+
+
+@app.post("/api/v1/health/wipe-all-data")
+def wipe_database_endpoint() -> dict[str, Any]:
+    """Maintenance endpoint: completely clears all tenant organizations, clinics, doctors,
+    patients, and consultations. Leaves only SubscriptionPlans and SuperAdmin.
+    """
+    from scripts.seed_demo import wipe_all_tenant_data
+    return wipe_all_tenant_data()
 
 
 @app.get("/", include_in_schema=False)
