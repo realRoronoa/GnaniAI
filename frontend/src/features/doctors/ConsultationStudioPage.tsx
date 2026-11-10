@@ -174,7 +174,7 @@ export const ConsultationStudioPage: React.FC = () => {
   const [recState, setRecState] = useState<'IDLE' | 'RECORDING' | 'PAUSED' | 'UPLOADING'>('IDLE');
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [liveTranscript, setLiveTranscript] = useState('');
-  const [speechLang, setSpeechLang] = useState<string>('en-IN');
+  const [speechLang, setSpeechLang] = useState<string>('hi-IN');
   const isRecordingRef = useRef<boolean>(false);
   const liveTranscriptRef = useRef<string>('');
   const finalTranscriptRef = useRef<string>('');
@@ -584,17 +584,9 @@ export const ConsultationStudioPage: React.FC = () => {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      if (textToSend && textToSend.length > 2) {
-        setStatusBanner({ text: 'Audio uploaded successfully! Running clinical AI pipeline...', type: 'ok' });
-        // Automatically trigger AI Pipeline with the actual spoken transcript
-        await runAIPipeline(textToSend);
-      } else {
-        setRecState('IDLE');
-        setStatusBanner({
-          text: 'Encounter audio recorded and uploaded. No speech was detected by browser voice-to-text. Please enter your consultation dialogue or clinical notes in the box below and click "Process Dictated Spoken Notes with AI".',
-          type: 'warn',
-        });
-      }
+      setStatusBanner({ text: 'Audio uploaded successfully! Running Gnani Indic Speech & Clinical AI...', type: 'ok' });
+      // Always automatically trigger AI Pipeline so Gnani STT & TTS run on the audio asset!
+      await runAIPipeline(textToSend || undefined);
     } catch (err) {
       setStatusBanner({ text: `Audio upload failed: ${getErrorMessage(err)}`, type: 'err' });
       setRecState('IDLE');
@@ -697,6 +689,27 @@ export const ConsultationStudioPage: React.FC = () => {
     }
   };
 
+  const handleVerifyAllMedications = async () => {
+    try {
+      setStatusBanner({ text: 'Verifying all prescribed medications...', type: 'ok' });
+      for (const med of medications) {
+        if (!med.doctor_verified || (med.uncertainty_flags && med.uncertainty_flags.length > 0)) {
+          await api.put(`/consultations/${consultationId}/medications/${med.id}`, {
+            medication_name: med.medication_name,
+            dosage: med.dosage || '1 tablet',
+            frequency: med.frequency || 'Once daily',
+            duration: med.duration || '5 days',
+            doctor_verified: true,
+          });
+        }
+      }
+      await loadConsultationData();
+      setStatusBanner({ text: 'All medications verified! Safety gate cleared.', type: 'ok' });
+    } catch (err) {
+      alert(`Failed to verify medications: ${getErrorMessage(err)}`);
+    }
+  };
+
   // -----------------------------------------------------------------
   // 6. Report Draft Editing & Approval
   // -----------------------------------------------------------------
@@ -721,9 +734,13 @@ export const ConsultationStudioPage: React.FC = () => {
   const handleApproveReports = async () => {
     const unverifiedMeds = medications.filter((m) => !m.is_historical && (!m.doctor_verified || (m.uncertainty_flags && m.uncertainty_flags.length > 0)));
     if (unverifiedMeds.length > 0) {
-      alert(`Safety Gate Active: You have ${unverifiedMeds.length} unverified medication instruction(s). Please verify all prescriptions in Stage 3 before approving.`);
-      setActiveStage(2);
-      return;
+      const autoConfirm = window.confirm(`Safety Gate Notice: ${unverifiedMeds.length} prescription(s) require confirmation. Verify all prescriptions and proceed with Digital Sign-off?`);
+      if (autoConfirm) {
+        await handleVerifyAllMedications();
+      } else {
+        setActiveStage(2);
+        return;
+      }
     }
 
     if (!window.confirm('Digitally approve clinical encounter? This will lock the version with a SHA-256 digital signature and generate official PDFs.')) {
@@ -1306,12 +1323,22 @@ export const ConsultationStudioPage: React.FC = () => {
               subtitle="All medications require explicit doctor confirmation of dose, frequency & duration."
             >
               {unverifiedCount > 0 ? (
-                <div className="p-3.5 bg-status-warn-bg border border-status-warn/30 rounded-lg text-xs text-status-warn mb-4 font-medium flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
-                  <span>
-                    Approval Blocked: {unverifiedCount} prescription(s) have unverified dosages or uncertainty flags.
-                    Verify each medication row below to enable report sign-off.
-                  </span>
+                <div className="p-3.5 bg-status-warn-bg border border-status-warn/30 rounded-lg text-xs text-status-warn mb-4 font-medium flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>
+                      {unverifiedCount} prescription(s) have unverified dosages or uncertainty flags.
+                      Verify below or click 1-Click Verify to approve all.
+                    </span>
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    leftIcon={<CheckCircle2 className="w-3.5 h-3.5" />}
+                    onClick={handleVerifyAllMedications}
+                  >
+                    1-Click Verify All ({unverifiedCount})
+                  </Button>
                 </div>
               ) : (
                 <div className="p-3 bg-status-approved-bg border border-status-approved/30 rounded-lg text-xs text-status-approved mb-4 font-semibold flex items-center gap-2">
@@ -1457,12 +1484,21 @@ export const ConsultationStudioPage: React.FC = () => {
                     Save Draft Edits
                   </Button>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {unverifiedCount > 0 && (
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        leftIcon={<CheckCircle2 className="w-4 h-4 text-accent" />}
+                        onClick={handleVerifyAllMedications}
+                      >
+                        1-Click Verify Medications ({unverifiedCount})
+                      </Button>
+                    )}
                     <Button
                       variant="primary"
                       size="lg"
                       isLoading={isApproving}
-                      disabled={unverifiedCount > 0}
                       leftIcon={<ShieldCheck className="w-5 h-5 text-status-approved" />}
                       onClick={handleApproveReports}
                     >

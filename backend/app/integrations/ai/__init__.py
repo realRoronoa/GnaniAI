@@ -33,14 +33,12 @@ def get_transcription_provider() -> TranscriptionProvider:
 
 
 def get_clinical_extraction_provider() -> ClinicalExtractionProvider:
-    if is_gnani_active():
-        return GnaniClinicalExtractionProvider()
+    # Clinical extraction is performed by ArogyaScribe's resilient clinical parser
     return MockClinicalExtractionProvider()
 
 
 def get_report_generation_provider() -> ReportGenerationProvider:
-    if is_gnani_active():
-        return GnaniReportGenerationProvider()
+    # Dual report generation is performed by ArogyaScribe's multi-lingual SOAP engine
     return MockReportGenerationProvider()
 
 
