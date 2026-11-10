@@ -30,6 +30,11 @@ api.interceptors.request.use(
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // Critical Fix: Strip 'Content-Type' when sending FormData so Axios & browser set boundary
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
+      (config.headers as any).delete?.('Content-Type');
+    }
     return config;
   },
   (error) => Promise.reject(error)
