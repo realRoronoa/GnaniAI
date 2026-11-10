@@ -66,23 +66,14 @@ def get_transcript(
     ).scalars().first()
 
     if not version:
-        fallback_text = (
-            consultation.chief_complaint_summary
-            or "DOCTOR: नमस्ते, आप बैठिए। क्या परेशानी हो रही है?\nPATIENT: डॉक्टर साहब, मुझे कमजोरी और बेचैनी महसूस हो रही है।"
-        )
-        version = TranscriptVersion(
-            organization_id=org_id,
-            consultation_id=consultation.id,
-            version_number=1,
-            source_type=TranscriptSourceType.AI_PRISMA,
-            full_text=fallback_text,
-            original_ai_text=fallback_text,
-            language_detected="hi-IN",
-            created_by_user_id=consultation.doctor_user_id,
-            is_current=True,
-        )
-        db.add(version)
-        db.flush()
+        return {
+            "transcript_version_id": None,
+            "version_number": 0,
+            "source_type": None,
+            "language_detected": None,
+            "full_text": "",
+            "segments": [],
+        }
 
     segments = db.execute(
         select(TranscriptSegment)
@@ -90,12 +81,8 @@ def get_transcript(
         .order_by(TranscriptSegment.sequence_number.asc())
     ).scalars().all()
 
-    if not segments:
-        source_text = (
-            version.full_text
-            or consultation.chief_complaint_summary
-            or "DOCTOR: नमस्ते, क्या परेशानी हो रही है?\nPATIENT: डॉक्टर साहब, बुखार और कमजोरी लग रही है।"
-        )
+    if not segments and version.full_text and len(version.full_text.strip()) > 3:
+        source_text = version.full_text.strip()
         raw_s = [s.strip() for s in re.split(r'[\r\n]+|[.!?]+', source_text) if len(s.strip()) > 2]
         if not raw_s:
             raw_s = [source_text]

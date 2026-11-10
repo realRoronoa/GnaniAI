@@ -221,10 +221,11 @@ def process_consultation_pipeline(
         # Fall back to user's browser-captured live_transcript
         effective_text = (live_transcript or "").strip()
         if not effective_text:
-            effective_text = (
-                "DOCTOR: नमस्ते, आप बैठिए। आपको क्या परेशानी हो रही है?\n"
-                "PATIENT: डॉक्टर साहब, मुझे 3 दिन से तेज बुखार, बदन दर्द और कमजोरी महसूस हो रही है।\n"
-                "DOCTOR: ठीक है। मैं जांच कर लेता हूँ। आप पेरासिटामोल (Paracetamol 650mg) दिन में 3 बार खाना खाने के बाद 5 दिन तक लीजिए और पर्याप्त पानी पीजिए।"
+            consultation.status = ConsultationStatus.RECORDING
+            db.commit()
+            raise ValueError(
+                "Voice capture failed: No speech was detected in the audio recording. "
+                "Please speak clearly into your microphone and record again."
             )
 
         raw_lines = [line.strip() for line in re.split(r'[\r\n]+', effective_text) if line.strip()]

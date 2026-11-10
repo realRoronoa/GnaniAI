@@ -281,26 +281,8 @@ export const ConsultationStudioPage: React.FC = () => {
       }
     }
 
-    if (facts.length > 0 || consultation?.chief_complaint_summary) {
-      const dialogueLines = [
-        { speaker: 'DOCTOR', text: 'नमस्ते, आप बैठिए। आपको क्या परेशानी हो रही है?' },
-        { speaker: 'PATIENT', text: `डॉक्टर साहब, मुख्य परेशानी यह है: ${consultation?.chief_complaint_summary || 'मुझे अस्वस्थता और कमजोरी महसूस हो रही है।'}` },
-        { speaker: 'DOCTOR', text: 'समझ गया। मैं आपकी जांच कर लेता हूँ और दवाइयां लिख देता हूँ।' },
-      ];
-      return dialogueLines.map((d, idx) => ({
-        id: `dialogue-seg-${idx}`,
-        sequence_number: idx + 1,
-        speaker_label: d.speaker,
-        start_time_ms: idx * 3000,
-        end_time_ms: (idx + 1) * 3000,
-        original_text: d.text,
-        corrected_text: null,
-        confidence_score: 0.95,
-      }));
-    }
-
     return [];
-  }, [transcriptData, liveTranscript, facts, consultation]);
+  }, [transcriptData, liveTranscript]);
 
   // ----------------------------------------------------
   // Stage 2: Transcript Editing State
@@ -481,6 +463,9 @@ export const ConsultationStudioPage: React.FC = () => {
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
         if (AudioContextClass) {
           const audioCtx = new AudioContextClass({ sampleRate: 16000 });
+          if (audioCtx.state === 'suspended') {
+            await audioCtx.resume();
+          }
           const micSource = audioCtx.createMediaStreamSource(stream);
           const scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
           scriptProcessor.onaudioprocess = (e) => {
@@ -546,6 +531,17 @@ export const ConsultationStudioPage: React.FC = () => {
         const domVal = textareaRef.current?.value?.trim() || '';
         const currentRef = (liveTranscriptRef.current || '').trim();
         const finalCaptured = deduplicateRepeatedPhrases(domVal || currentRef);
+
+        // Strict Voice Capture Check: reject silent or empty audio without captured speech
+        if (audioBlob.size < 1000 && !finalCaptured) {
+          setStatusBanner({
+            text: 'Voice capture failed: No speech was detected in the audio recording. Please speak clearly into your microphone and record again.',
+            type: 'err',
+          });
+          setRecState('IDLE');
+          return;
+        }
+
         await uploadAudioBlob(audioBlob, finalCaptured);
       };
 
@@ -727,7 +723,12 @@ export const ConsultationStudioPage: React.FC = () => {
       await loadConsultationData();
       setActiveStage(1); // Advance to Transcript review
     } catch (err) {
-      setStatusBanner({ text: `AI pipeline error: ${getErrorMessage(err)}`, type: 'err' });
+      const errMsg = getErrorMessage(err);
+      setStatusBanner({
+        text: errMsg.includes('Voice capture failed') ? errMsg : `AI pipeline error: ${errMsg}`,
+        type: 'err',
+      });
+      setRecState('IDLE');
     } finally {
       setIsProcessingAI(false);
     }
