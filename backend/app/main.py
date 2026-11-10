@@ -109,17 +109,20 @@ async def health_check() -> dict[str, Any]:
     eff_key = settings.get_effective_gnani_key()
     has_key = bool(eff_key)
     preview = (eff_key[:6] + "..." + eff_key[-4:]) if len(eff_key) > 10 else ("***" if eff_key else "NOT_SET")
+    from app.integrations.ai.gnani_providers import get_ffmpeg_binary
+    ffmpeg_bin = get_ffmpeg_binary()
     return {
         "status": "healthy",
         "service": settings.app_name,
-        "version": "0.1.5",
-        "build": "official-gnani-live",
+        "version": "0.1.6",
+        "build": "official-gnani-wav-direct",
         "environment": settings.app_env,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "ai_provider_mode": settings.AI_PROVIDER,
         "has_gnani_key": has_key,
         "gnani_key_preview": preview,
         "gnani_base_url": settings.gnani_base_url,
+        "ffmpeg_binary": ffmpeg_bin,
         "payment_mode": settings.payment_mode,
         "database_connected": bool(engine),
     }

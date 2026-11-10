@@ -64,17 +64,44 @@ def to_bcp47_language_code(code: str | None) -> str:
     return mapping.get(clean, "hi-IN")
 
 
+def get_ffmpeg_binary() -> str:
+    """Finds ffmpeg from imageio_ffmpeg, system PATH, or environment."""
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and os.path.exists(exe):
+            return exe
+    except Exception:
+        pass
+    import shutil
+    sys_ffmpeg = shutil.which("ffmpeg")
+    if sys_ffmpeg:
+        return sys_ffmpeg
+    return "ffmpeg"
+
+
 def convert_to_wav_16k_mono(audio_bytes: bytes) -> bytes:
-    """Converts browser-recorded audio (WebM/Opus) to 16kHz 16-bit mono WAV trimmed to 29s max.
+    """Converts browser-recorded audio (WAV/WebM/Opus) to 16kHz 16-bit mono WAV trimmed to 29s max.
     
-    If audio_bytes is empty, dummy, or ffmpeg fails, returns a valid 2-second 16kHz mono WAV.
+    If input is already a valid WAV file >= 44 bytes, preserves or trims it.
+    If ffmpeg is available, converts WebM/Opus to 16kHz mono WAV.
+    Otherwise falls back to generated 2-second valid WAV.
     """
     if not audio_bytes or len(audio_bytes) < 44:
         return generate_silence_wav(2.0)
 
+    # 1. Fast path: If already a valid PCM WAV (starts with 'RIFF' and has 'WAVE')
+    if audio_bytes[:4] == b"RIFF" and len(audio_bytes) >= 44 and b"WAVE" in audio_bytes[:16]:
+        # Under 30s (16kHz 16-bit mono is 32000 bytes/sec, ~960,000 bytes for 30s)
+        if len(audio_bytes) <= 1_200_000:
+            logger.info("Direct WAV passthrough: %d bytes (genuine PCM audio)", len(audio_bytes))
+            return audio_bytes
+
+    # 2. Convert WebM/Opus or other audio using ffmpeg
     try:
+        ffmpeg_bin = get_ffmpeg_binary()
         cmd = [
-            "ffmpeg", "-y",
+            ffmpeg_bin, "-y",
             "-i", "pipe:0",
             "-t", "29",
             "-ar", "16000",
@@ -85,18 +112,18 @@ def convert_to_wav_16k_mono(audio_bytes: bytes) -> bytes:
         ]
         proc = subprocess.run(cmd, input=audio_bytes, capture_output=True, timeout=15)
         if proc.returncode == 0 and len(proc.stdout) > 44:
-            logger.info("ffmpeg conversion successful: %d bytes -> %d bytes (16kHz mono WAV, <=29s)", len(audio_bytes), len(proc.stdout))
+            logger.info("ffmpeg conversion successful (%s): %d bytes -> %d bytes (16kHz mono WAV, <=29s)", ffmpeg_bin, len(audio_bytes), len(proc.stdout))
             return proc.stdout
         else:
             logger.warning("ffmpeg conversion exited with code %d (stderr: %s)", proc.returncode, proc.stderr[:200] if proc.stderr else b"")
     except Exception as exc:
-        logger.debug("ffmpeg conversion unavailable or failed (%s).", exc)
+        logger.warning("ffmpeg conversion unavailable or failed (%s).", exc)
 
-    # If input is already a valid WAV file, ensure safe playback
+    # 3. Fallback: If input starts with RIFF, still return it
     if audio_bytes.startswith(b"RIFF") and len(audio_bytes) > 44:
         return audio_bytes
 
-    # Fallback to standard library generated 2s WAV so gateway always accepts
+    # 4. Fallback to standard library generated 2s WAV so gateway always accepts
     return generate_silence_wav(2.0)
 
 

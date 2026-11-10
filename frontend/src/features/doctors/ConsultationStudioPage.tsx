@@ -100,6 +100,40 @@ export function deduplicateRepeatedPhrases(text: string): string {
   return words.join(' ').trim();
 }
 
+/**
+ * Encodes raw 16kHz mono Float32 PCM samples into a standard 16-bit PCM WAV Blob.
+ */
+function encodeWavBlob(samples: Float32Array, sampleRate: number = 16000): Blob {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+
+  // RIFF header
+  view.setUint32(0, 0x52494646, false); // "RIFF"
+  view.setUint32(4, 36 + samples.length * 2, true);
+  view.setUint32(8, 0x57415645, false); // "WAVE"
+  // fmt subchunk
+  view.setUint32(12, 0x666d7420, false); // "fmt "
+  view.setUint32(16, 16, true); // SubChunk1Size (16 for PCM)
+  view.setUint16(20, 1, true); // AudioFormat (1 for PCM)
+  view.setUint16(22, 1, true); // NumChannels (1 mono)
+  view.setUint32(24, sampleRate, true); // SampleRate
+  view.setUint32(28, sampleRate * 2, true); // ByteRate (SampleRate * NumChannels * BitsPerSample/8)
+  view.setUint16(32, 2, true); // BlockAlign (NumChannels * BitsPerSample/8)
+  view.setUint16(34, 16, true); // BitsPerSample (16-bit)
+  // data subchunk
+  view.setUint32(36, 0x64617461, false); // "data"
+  view.setUint32(40, samples.length * 2, true);
+
+  // Write 16-bit linear PCM samples
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
 const FactValueRenderer: React.FC<{ value: any }> = ({ value }) => {
   let parsed = value;
   if (typeof value === 'string') {
@@ -186,6 +220,10 @@ export const ConsultationStudioPage: React.FC = () => {
   const audioChunksRef = useRef<Blob[]>([]);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const recognitionRef = useRef<any>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const pcmChunksRef = useRef<Float32Array[]>([]);
 
   const updateLiveTranscript = (text: string) => {
     liveTranscriptRef.current = text;
@@ -405,9 +443,17 @@ export const ConsultationStudioPage: React.FC = () => {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       isRecordingRef.current = true;
       audioChunksRef.current = [];
+      pcmChunksRef.current = [];
       finalTranscriptRef.current = '';
       interimTranscriptRef.current = '';
       const baseTextBeforeRec = (liveTranscriptRef.current || '').trim();
@@ -419,6 +465,29 @@ export const ConsultationStudioPage: React.FC = () => {
       setFacts([]);
       setMedications([]);
       setReports([]);
+
+      // 1. High-fidelity Web Audio PCM 16kHz mono recorder for Gnani STT
+      try {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+          const audioCtx = new AudioContextClass({ sampleRate: 16000 });
+          const micSource = audioCtx.createMediaStreamSource(stream);
+          const scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
+          scriptProcessor.onaudioprocess = (e) => {
+            if (isRecordingRef.current) {
+              const inputData = e.inputBuffer.getChannelData(0);
+              pcmChunksRef.current.push(new Float32Array(inputData));
+            }
+          };
+          micSource.connect(scriptProcessor);
+          scriptProcessor.connect(audioCtx.destination);
+          audioContextRef.current = audioCtx;
+          micSourceRef.current = micSource;
+          scriptProcessorRef.current = scriptProcessor;
+        }
+      } catch (ctxErr) {
+        console.warn('AudioContext PCM recording notice:', ctxErr);
+      }
 
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -433,7 +502,36 @@ export const ConsultationStudioPage: React.FC = () => {
       };
 
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        if (scriptProcessorRef.current) {
+          try { scriptProcessorRef.current.disconnect(); } catch {}
+          scriptProcessorRef.current = null;
+        }
+        if (micSourceRef.current) {
+          try { micSourceRef.current.disconnect(); } catch {}
+          micSourceRef.current = null;
+        }
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+          try { audioContextRef.current.close(); } catch {}
+          audioContextRef.current = null;
+        }
+
+        let audioBlob: Blob;
+        const pcmChunks = pcmChunksRef.current;
+        if (pcmChunks && pcmChunks.length > 0) {
+          let totalLen = 0;
+          for (const c of pcmChunks) totalLen += c.length;
+          const merged = new Float32Array(totalLen);
+          let offset = 0;
+          for (const c of pcmChunks) {
+            merged.set(c, offset);
+            offset += c.length;
+          }
+          audioBlob = encodeWavBlob(merged, 16000);
+          console.log(`Generated high-clarity 16kHz mono WAV blob: ${audioBlob.size} bytes`);
+        } else {
+          audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        }
+
         stream.getTracks().forEach((track) => track.stop());
         const domVal = textareaRef.current?.value?.trim() || '';
         const currentRef = (liveTranscriptRef.current || '').trim();
@@ -558,6 +656,18 @@ export const ConsultationStudioPage: React.FC = () => {
     if (recognitionRef.current) {
       try { recognitionRef.current.abort(); } catch { }
     }
+    if (scriptProcessorRef.current) {
+      try { scriptProcessorRef.current.disconnect(); } catch {}
+      scriptProcessorRef.current = null;
+    }
+    if (micSourceRef.current) {
+      try { micSourceRef.current.disconnect(); } catch {}
+      micSourceRef.current = null;
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      try { audioContextRef.current.close(); } catch {}
+      audioContextRef.current = null;
+    }
     if (mediaRecorderRef.current) {
       try {
         mediaRecorderRef.current.stop();
@@ -575,7 +685,8 @@ export const ConsultationStudioPage: React.FC = () => {
       const domVal = textareaRef.current?.value?.trim() || '';
       const textToSend = (transcriptText || domVal || liveTranscriptRef.current).trim();
       const formData = new FormData();
-      formData.append('audio_file', blob, 'consultation_audio.webm');
+      const filename = blob.type.includes('wav') ? 'consultation_audio.wav' : 'consultation_audio.webm';
+      formData.append('audio_file', blob, filename);
       if (textToSend) {
         formData.append('transcript_text', textToSend);
       }
