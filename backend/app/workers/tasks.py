@@ -442,10 +442,12 @@ def process_consultation_pipeline(
     db.add(report_job)
     db.flush()
 
-    patient = db.get(Patient, consultation.patient_id)
-    doctor = db.get(User, consultation.doctor_user_id)
-    doc_prof = db.execute(select(DoctorProfile).where(DoctorProfile.user_id == doctor.id)).scalars().first()
-    org = db.get(Organization, org_id)
+    patient = db.get(Patient, consultation.patient_id) if consultation.patient_id else None
+    doctor = db.get(User, consultation.doctor_user_id) if consultation.doctor_user_id else None
+    doc_prof = None
+    if doctor:
+        doc_prof = db.execute(select(DoctorProfile).where(DoctorProfile.user_id == doctor.id)).scalars().first()
+    org = db.get(Organization, org_id) if org_id else None
 
     patient_dict = {
         "full_name": patient.full_name if patient else "Patient",

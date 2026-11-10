@@ -269,6 +269,7 @@ def wipe_database_endpoint() -> dict[str, Any]:
 @app.get("/api/v1/health/db-status")
 def database_status_endpoint() -> dict[str, Any]:
     """Diagnostic endpoint: returns tenant counts and user emails."""
+    from sqlalchemy import select
     from app.db.session import SessionLocal
     from app.models.tenant import User, Organization
     from app.models.consultations_audio import Consultation
@@ -284,6 +285,25 @@ def database_status_endpoint() -> dict[str, Any]:
             "consultations_count": len(cons),
             "consultations": [{"id": str(c.id), "status": str(c.status)} for c in cons[-5:]],
         }
+
+
+@app.post("/api/v1/health/seed-demo")
+def seed_demo_endpoint() -> dict[str, Any]:
+    """Provisions complete demo clinic, doctor, receptionist, patients, and ready consultations."""
+    from scripts.seed_demo import seed
+    seed()
+    return {
+        "status": "success",
+        "message": "Demo clinic & doctor successfully provisioned.",
+        "doctor_credentials": {
+            "email": "dr.sharma@arogyacare.in",
+            "password": "Doctor@123",
+        },
+        "admin_credentials": {
+            "email": "owner@arogyacare.in",
+            "password": "OrgAdmin@123",
+        },
+    }
 
 
 @app.get("/", include_in_schema=False)
