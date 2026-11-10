@@ -196,19 +196,15 @@ def process_consultation_pipeline(
 
     transcription_result = None
 
-    # Check if a genuine Gnani API key is configured
-    raw_key = (settings.gnani_api_key or "").strip()
-    has_real_gnani_key = bool(raw_key and raw_key != "YOUR_GNANI_API_KEY_HERE" and not raw_key.startswith("YOUR_"))
-
-    if settings.ai_provider_mode == "gnani" and has_real_gnani_key and audio_bytes and len(audio_bytes) > 200:
+    # Dispatch audio to STT if in Gnani mode and audio is present
+    if settings.ai_provider_mode == "gnani" and audio_bytes and len(audio_bytes) > 50:
         try:
             stt_provider = get_transcription_provider()
             logger.info("Dispatching audio to Gnani Prisma STT for consultation %s (%d bytes)", consultation.id, len(audio_bytes))
             res = asyncio.run(
                 stt_provider.transcribe(audio_bytes, consent.language or "en-IN")
             )
-            # Only adopt if it returned substantive non-fallback transcription text
-            if res and res.full_text and len(res.full_text.strip()) > 5:
+            if res and res.full_text and len(res.full_text.strip()) > 3:
                 transcription_result = res
         except Exception as e:
             logger.warning("Gnani STT call encountered an exception (%s). Falling back gracefully.", e)

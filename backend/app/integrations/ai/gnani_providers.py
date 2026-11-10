@@ -1,17 +1,14 @@
-"""Gnani AI Provider Implementations with SHA-256 Disk Caching & Credit Guardrail
+"""Gnani AI Live Provider Implementations
 
-Contains the HTTP adapters for:
+Contains the HTTP REST adapters for:
 - Gnani Prisma v2.5 (STT): Multi-lingual speech recognition with Indian code-switching
 - Gnani Evon v3.3 (LLM): Clinical fact extraction, evidence grounding, and dual report generation
 - Gnani Timbre v2.5 (TTS): Vernacular audio narration for patient discharge summaries
 
-Protected by a local SHA-256 persistent disk cache and a 6-call hard circuit breaker
-to strictly conserve the hackathon's 5,000 credits.
+Direct live REST calls to the Gnani / Vachana gateway with zero artificial caching
+and zero circuit-breaker throttling.
 """
-import hashlib
-import json
 import logging
-import os
 from typing import Any
 import httpx
 
@@ -41,72 +38,18 @@ def _is_valid_key(api_key: str | None) -> bool:
 
 def _get_auth_headers(api_key: str) -> dict[str, str]:
     """Generates standard authentication headers required by the Gnani/Vachana gateway."""
+    clean = api_key.strip()
     return {
-        "x-api-key-id": api_key,
-        "x-api-key": api_key,
-        "X-API-Key": api_key,
-        "Authorization": f"Bearer {api_key}",
+        "x-api-key-id": clean,
+        "x-api-key": clean,
+        "X-API-Key": clean,
+        "Authorization": f"Bearer {clean}",
         "Accept": "application/json",
     }
 
 
-def _ensure_cache_dir() -> str:
-    cache_dir = getattr(settings, "gnani_cache_dir", "./storage/gnani_cache")
-    os.makedirs(cache_dir, exist_ok=True)
-    return cache_dir
-
-
-def _check_and_increment_counter() -> bool:
-    """Returns True if within allowed budget (< gnani_max_live_calls), False if capped."""
-    cache_dir = _ensure_cache_dir()
-    counter_path = os.path.join(cache_dir, "usage_counter.json")
-    max_allowed = getattr(settings, "gnani_max_live_calls", 6)
-
-    data = {"live_calls_count": 0, "max_allowed_calls": max_allowed}
-    if os.path.exists(counter_path):
-        try:
-            with open(counter_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception:
-            pass
-
-    current_count = data.get("live_calls_count", 0)
-    if current_count >= max_allowed:
-        return False
-
-    data["live_calls_count"] = current_count + 1
-    try:
-        with open(counter_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-    except Exception:
-        pass
-    return True
-
-
-def _read_disk_cache(cache_key: str) -> dict | None:
-    cache_dir = _ensure_cache_dir()
-    file_path = os.path.join(cache_dir, f"{cache_key}.json")
-    if os.path.exists(file_path):
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return None
-    return None
-
-
-def _write_disk_cache(cache_key: str, data: dict) -> None:
-    cache_dir = _ensure_cache_dir()
-    file_path = os.path.join(cache_dir, f"{cache_key}.json")
-    try:
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-    except Exception:
-        pass
-
-
 class GnaniTranscriptionProvider:
-    """Gnani Prisma v2.5 STT REST Adapter with SHA-256 disk cache & credit protection."""
+    """Gnani Prisma v2.5 STT REST Adapter."""
 
     def __init__(self) -> None:
         self.api_key = settings.gnani_api_key
@@ -115,38 +58,32 @@ class GnaniTranscriptionProvider:
         self._fallback = MockTranscriptionProvider()
 
     async def transcribe(self, audio_bytes: bytes, language_code: str = "en-IN") -> TranscriptionResult:
-        cache_key = hashlib.sha256(audio_bytes + language_code.encode("utf-8")).hexdigest()
-
-        # Check local disk cache
-        cached = _read_disk_cache(cache_key)
-        if cached:
-            logger.info("Gnani STT: Cache hit for key %s", cache_key[:12])
-            return TranscriptionResult.model_validate(cached)
-
-        # Guardrail: check valid API key
         if not _is_valid_key(self.api_key):
-            logger.info("Gnani STT: No valid GNANI_API_KEY provided in backend/.env. Using local fallback engine.")
-            result = await self._fallback.transcribe(audio_bytes, language_code)
-            _write_disk_cache(cache_key, result.model_dump())
-            return result
-
-        # Guardrail: check circuit breaker budget limit
-        if not _check_and_increment_counter():
-            logger.warning("Gnani STT: Live call budget limit reached (%d max calls). Using local fallback.", settings.gnani_max_live_calls)
-            result = await self._fallback.transcribe(audio_bytes, language_code)
-            _write_disk_cache(cache_key, result.model_dump())
-            return result
+            logger.warning(
+                "Gnani STT: GNANI_API_KEY is not configured in environment (current value: %r). "
+                "Set GNANI_API_KEY in Render to enable live speech-to-text API calls.",
+                self.api_key,
+            )
+            return await self._fallback.transcribe(audio_bytes, language_code)
 
         headers = _get_auth_headers(self.api_key)
         files = {"audio_file": ("encounter.wav", audio_bytes, "audio/wav")}
         data = {"language": language_code, "model": getattr(settings, "gnani_stt_model", "prisma-v2.5")}
 
+        logger.info(
+            ">>> DISPATCHING LIVE STT CALL TO: %s (size: %d bytes, lang: %s, key: %s...)",
+            self.endpoint,
+            len(audio_bytes),
+            language_code,
+            self.api_key[:6] if len(self.api_key) > 6 else "***",
+        )
+
         try:
-            logger.info("Gnani STT: Dispatching live transcription request to %s (audio size: %d bytes)", self.endpoint, len(audio_bytes))
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(self.endpoint, headers=headers, files=files, data=data)
+                logger.info("Gnani STT response status: HTTP %d", response.status_code)
                 if response.status_code >= 400:
-                    logger.error("Gnani STT: API returned error HTTP %d: %s", response.status_code, response.text)
+                    logger.error("Gnani STT API returned HTTP %d: %s", response.status_code, response.text)
                     response.raise_for_status()
                 res_json = response.json()
 
@@ -162,22 +99,18 @@ class GnaniTranscriptionProvider:
                 for i, seg in enumerate(res_json.get("segments", []))
             ]
 
-            result = TranscriptionResult(
+            return TranscriptionResult(
                 full_text=res_json.get("full_transcript", ""),
                 language_detected=res_json.get("language_detected", language_code),
                 segments=segments,
             )
-            _write_disk_cache(cache_key, result.model_dump())
-            return result
         except Exception as exc:
-            logger.warning("Gnani STT: Live API call failed (%s). Falling back to local transcript generation.", exc)
-            fallback_res = await self._fallback.transcribe(audio_bytes, language_code)
-            _write_disk_cache(cache_key, fallback_res.model_dump())
-            return fallback_res
+            logger.error("Gnani STT live request failed (%s). Utilizing local fallback.", exc)
+            return await self._fallback.transcribe(audio_bytes, language_code)
 
 
 class GnaniClinicalExtractionProvider:
-    """Gnani Evon v3.3 Clinical Information Extraction Adapter with disk cache & guardrail."""
+    """Gnani Evon v3.3 Clinical Information Extraction Adapter."""
 
     def __init__(self) -> None:
         self.api_key = settings.gnani_api_key
@@ -192,28 +125,15 @@ class GnaniClinicalExtractionProvider:
         previous_consultation_facts: list[dict[str, Any]] | None = None,
         is_sample_demo: bool = False,
     ) -> ClinicalExtractionResult:
-        cache_key = hashlib.sha256((transcript_text + str(is_sample_demo)).encode("utf-8")).hexdigest()
-
-        cached = _read_disk_cache(cache_key)
-        if cached:
-            logger.info("Gnani Clinical Extraction: Cache hit for key %s", cache_key[:12])
-            return ClinicalExtractionResult.model_validate(cached)
-
         if not _is_valid_key(self.api_key):
-            logger.info("Gnani Clinical Extraction: No valid GNANI_API_KEY configured. Using local extraction engine.")
-            fallback_res = await self._fallback.extract_clinical_data(
+            logger.warning(
+                "Gnani Clinical Extraction: GNANI_API_KEY is not configured in environment (current value: %r). "
+                "Set GNANI_API_KEY in Render to enable live clinical extraction API calls.",
+                self.api_key,
+            )
+            return await self._fallback.extract_clinical_data(
                 transcript_text, segments, previous_consultation_facts, is_sample_demo=is_sample_demo
             )
-            _write_disk_cache(cache_key, fallback_res.model_dump())
-            return fallback_res
-
-        if not _check_and_increment_counter():
-            logger.warning("Gnani Clinical Extraction: Live call budget limit reached. Using local fallback.")
-            fallback_res = await self._fallback.extract_clinical_data(
-                transcript_text, segments, previous_consultation_facts, is_sample_demo=is_sample_demo
-            )
-            _write_disk_cache(cache_key, fallback_res.model_dump())
-            return fallback_res
 
         payload = {
             "model": getattr(settings, "gnani_llm_model", "evon-v3.3"),
@@ -222,8 +142,14 @@ class GnaniClinicalExtractionProvider:
             "previous_facts": previous_consultation_facts or [],
         }
 
+        logger.info(
+            ">>> DISPATCHING LIVE CLINICAL EXTRACTION CALL TO: %s (transcript length: %d chars, key: %s...)",
+            self.endpoint,
+            len(transcript_text),
+            self.api_key[:6] if len(self.api_key) > 6 else "***",
+        )
+
         try:
-            logger.info("Gnani Clinical Extraction: Dispatching live extraction request to %s", self.endpoint)
             headers = _get_auth_headers(self.api_key)
             headers["Content-Type"] = "application/json"
             async with httpx.AsyncClient(timeout=90.0) as client:
@@ -232,25 +158,22 @@ class GnaniClinicalExtractionProvider:
                     headers=headers,
                     json=payload,
                 )
+                logger.info("Gnani Clinical response status: HTTP %d", response.status_code)
                 if response.status_code >= 400:
-                    logger.error("Gnani Clinical Extraction: API returned error HTTP %d: %s", response.status_code, response.text)
+                    logger.error("Gnani Clinical API returned HTTP %d: %s", response.status_code, response.text)
                     response.raise_for_status()
                 res = response.json()
 
-            result = ClinicalExtractionResult.model_validate(res)
-            _write_disk_cache(cache_key, result.model_dump())
-            return result
+            return ClinicalExtractionResult.model_validate(res)
         except Exception as exc:
-            logger.warning("Gnani Clinical Extraction: Live API call failed (%s). Falling back to local extractor.", exc)
-            fallback_res = await self._fallback.extract_clinical_data(
+            logger.error("Gnani Clinical Extraction live request failed (%s). Utilizing local fallback.", exc)
+            return await self._fallback.extract_clinical_data(
                 transcript_text, segments, previous_consultation_facts, is_sample_demo=is_sample_demo
             )
-            _write_disk_cache(cache_key, fallback_res.model_dump())
-            return fallback_res
 
 
 class GnaniReportGenerationProvider:
-    """Gnani Evon v3.3 Report Generation Provider with disk cache & credit guardrail."""
+    """Gnani Evon v3.3 Report Generation Provider."""
 
     def __init__(self) -> None:
         self.api_key = settings.gnani_api_key
@@ -268,30 +191,15 @@ class GnaniReportGenerationProvider:
         clinic_info: dict[str, Any],
         is_sample_demo: bool = False,
     ) -> DualReportResult:
-        cache_key = hashlib.sha256(
-            (chief_complaint + json.dumps(facts, sort_keys=True) + json.dumps(medications, sort_keys=True) + str(is_sample_demo)).encode("utf-8")
-        ).hexdigest()
-
-        cached = _read_disk_cache(cache_key)
-        if cached:
-            logger.info("Gnani Reports: Cache hit for key %s", cache_key[:12])
-            return DualReportResult.model_validate(cached)
-
         if not _is_valid_key(self.api_key):
-            logger.info("Gnani Reports: No valid GNANI_API_KEY configured. Using local report engine.")
-            fallback_res = await self._fallback.generate_dual_reports(
+            logger.warning(
+                "Gnani Reports: GNANI_API_KEY is not configured in environment (current value: %r). "
+                "Set GNANI_API_KEY in Render to enable live report generation API calls.",
+                self.api_key,
+            )
+            return await self._fallback.generate_dual_reports(
                 chief_complaint, facts, medications, patient_info, doctor_info, clinic_info, is_sample_demo=is_sample_demo
             )
-            _write_disk_cache(cache_key, fallback_res.model_dump())
-            return fallback_res
-
-        if not _check_and_increment_counter():
-            logger.warning("Gnani Reports: Live call budget reached. Using local report generator.")
-            fallback_res = await self._fallback.generate_dual_reports(
-                chief_complaint, facts, medications, patient_info, doctor_info, clinic_info, is_sample_demo=is_sample_demo
-            )
-            _write_disk_cache(cache_key, fallback_res.model_dump())
-            return fallback_res
 
         payload = {
             "model": getattr(settings, "gnani_llm_model", "evon-v3.3"),
@@ -303,27 +211,31 @@ class GnaniReportGenerationProvider:
             "clinic_info": clinic_info,
         }
 
+        logger.info(
+            ">>> DISPATCHING LIVE REPORT GENERATION CALL TO: %s (facts: %d, meds: %d, key: %s...)",
+            self.endpoint,
+            len(facts),
+            len(medications),
+            self.api_key[:6] if len(self.api_key) > 6 else "***",
+        )
+
         try:
-            logger.info("Gnani Reports: Calling live report generation endpoint: %s", self.endpoint)
             headers = _get_auth_headers(self.api_key)
             headers["Content-Type"] = "application/json"
             async with httpx.AsyncClient(timeout=90.0) as client:
                 response = await client.post(self.endpoint, headers=headers, json=payload)
+                logger.info("Gnani Reports response status: HTTP %d", response.status_code)
                 if response.status_code >= 400:
-                    logger.error("Gnani Reports: API returned error HTTP %d: %s", response.status_code, response.text)
+                    logger.error("Gnani Reports API returned HTTP %d: %s", response.status_code, response.text)
                     response.raise_for_status()
                 res = response.json()
 
-            result = DualReportResult.model_validate(res)
-            _write_disk_cache(cache_key, result.model_dump())
-            return result
+            return DualReportResult.model_validate(res)
         except Exception as exc:
-            logger.warning("Gnani Reports: Live API call failed (%s). Using local report generator.", exc)
-            fallback_res = await self._fallback.generate_dual_reports(
+            logger.error("Gnani Reports live request failed (%s). Utilizing local fallback.", exc)
+            return await self._fallback.generate_dual_reports(
                 chief_complaint, facts, medications, patient_info, doctor_info, clinic_info, is_sample_demo=is_sample_demo
             )
-            _write_disk_cache(cache_key, fallback_res.model_dump())
-            return fallback_res
 
 
 class GnaniTextToSpeechProvider:
@@ -350,6 +262,7 @@ class GnaniTextToSpeechProvider:
             "audio_format": "wav",
         }
 
+        logger.info(">>> DISPATCHING LIVE TTS CALL TO: %s (lang: %s, text len: %d)", self.endpoint, language_code, len(text))
         try:
             headers = _get_auth_headers(self.api_key)
             headers["Content-Type"] = "application/json"
@@ -360,9 +273,9 @@ class GnaniTextToSpeechProvider:
                     json=payload,
                 )
                 if response.status_code >= 400:
-                    logger.error("Gnani TTS: API returned error HTTP %d: %s", response.status_code, response.text)
+                    logger.error("Gnani TTS API returned HTTP %d: %s", response.status_code, response.text)
                     response.raise_for_status()
                 return response.content
         except Exception as exc:
-            logger.warning("Gnani TTS: Live synthesis failed (%s)", exc)
+            logger.error("Gnani TTS live request failed (%s)", exc)
             return b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x44\xac\x00\x00\x88\x58\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00"

@@ -711,8 +711,8 @@ export const ConsultationStudioPage: React.FC = () => {
 
           <div className="flex items-center gap-3">
             <div className="hidden md:flex items-center gap-1.5 px-3 py-1 bg-surface-2 border border-line rounded-full text-[11px] font-medium text-text-2">
-              <span className="w-2 h-2 rounded-full bg-status-approved"></span>
-              <span>Gnani Indic Engine: <strong className="text-ink">Credit-Protected Cache Active</strong></span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Gnani Indic AI: <strong className="text-ink">Live Direct Engine</strong></span>
             </div>
             <Button
               variant="outline"

@@ -109,11 +109,14 @@ async def health_check() -> dict[str, Any]:
     return {
         "status": "healthy",
         "service": settings.app_name,
-        "version": "0.1.3",
-        "build": "multifix-scalar",
+        "version": "0.1.4",
+        "build": "telemetry-live",
         "environment": settings.app_env,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "ai_provider_mode": settings.ai_provider_mode,
+        "has_gnani_key": bool(settings.gnani_api_key and settings.gnani_api_key.strip() and not settings.gnani_api_key.startswith("YOUR_")),
+        "gnani_key_preview": (settings.gnani_api_key[:6] + "..." + settings.gnani_api_key[-4:]) if (settings.gnani_api_key and len(settings.gnani_api_key) > 10) else ("SET_SHORT" if settings.gnani_api_key else "NOT_SET"),
+        "gnani_base_url": settings.gnani_base_url,
         "payment_mode": settings.payment_mode,
         "database_connected": bool(engine),
     }
