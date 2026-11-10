@@ -179,6 +179,8 @@ export const ConsultationStudioPage: React.FC = () => {
   const liveTranscriptRef = useRef<string>('');
   const finalTranscriptRef = useRef<string>('');
   const interimTranscriptRef = useRef<string>('');
+  const accumulatedFinalRef = useRef<string>('');
+  const currentInterimRef = useRef<string>('');
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -344,7 +346,9 @@ export const ConsultationStudioPage: React.FC = () => {
       finalTranscriptRef.current = '';
       interimTranscriptRef.current = '';
       const baseTextBeforeRec = (liveTranscriptRef.current || '').trim();
-      updateLiveTranscript('');
+      accumulatedFinalRef.current = baseTextBeforeRec;
+      currentInterimRef.current = '';
+      updateLiveTranscript(baseTextBeforeRec);
       // Clear pre-existing consultation stage data so stale mock data never bleeds in
       setTranscriptData(null);
       setFacts([]);
@@ -381,30 +385,38 @@ export const ConsultationStudioPage: React.FC = () => {
           rec.interimResults = true;
           rec.lang = speechLang || 'en-IN';
           rec.onresult = (evt: any) => {
-            let sessionFinal = '';
-            let sessionInterim = '';
-            for (let i = 0; i < evt.results.length; i++) {
+            let interimChunk = '';
+            for (let i = evt.resultIndex; i < evt.results.length; i++) {
               const item = evt.results[i];
               if (item && item[0]) {
+                const phrase = item[0].transcript.trim();
                 if (item.isFinal) {
-                  sessionFinal += item[0].transcript + ' ';
+                  if (phrase) {
+                    const currentAcc = accumulatedFinalRef.current.trim();
+                    if (!currentAcc.endsWith(phrase)) {
+                      accumulatedFinalRef.current = currentAcc ? `${currentAcc} ${phrase}` : phrase;
+                    }
+                  }
                 } else {
-                  sessionInterim += item[0].transcript + ' ';
+                  interimChunk += (interimChunk ? ' ' : '') + phrase;
                 }
               }
             }
-            finalTranscriptRef.current = sessionFinal.trim();
-            interimTranscriptRef.current = sessionInterim.trim();
-            const rawCombined = [baseTextBeforeRec, sessionFinal, sessionInterim]
-              .filter(Boolean)
-              .join(' ')
-              .trim();
-            const cleaned = deduplicateRepeatedPhrases(rawCombined);
-            updateLiveTranscript(cleaned);
+            currentInterimRef.current = interimChunk;
+            const fullDisplay = [accumulatedFinalRef.current, interimChunk].filter(Boolean).join(' ').trim();
+            updateLiveTranscript(fullDisplay);
           };
           rec.onend = () => {
-            // Keep speech recognition continuously alive while recording
+            // Keep speech recognition continuously alive across pauses without wiping accumulated words
             if (isRecordingRef.current) {
+              if (currentInterimRef.current.trim()) {
+                const leftover = currentInterimRef.current.trim();
+                const currentAcc = accumulatedFinalRef.current.trim();
+                if (!currentAcc.endsWith(leftover)) {
+                  accumulatedFinalRef.current = currentAcc ? `${currentAcc} ${leftover}` : leftover;
+                }
+                currentInterimRef.current = '';
+              }
               try {
                 rec.start();
               } catch {}
@@ -450,11 +462,23 @@ export const ConsultationStudioPage: React.FC = () => {
     }
     await new Promise((r) => setTimeout(r, 400));
 
+    // Flush any pending interim speech into accumulatedFinalRef
+    if (currentInterimRef.current.trim()) {
+      const leftover = currentInterimRef.current.trim();
+      const currentAcc = accumulatedFinalRef.current.trim();
+      if (!currentAcc.endsWith(leftover)) {
+        accumulatedFinalRef.current = currentAcc ? `${currentAcc} ${leftover}` : leftover;
+      }
+      currentInterimRef.current = '';
+    }
+
     // 2. Read live DOM value or refs to guarantee real spoken words are preserved
     const domVal = textareaRef.current?.value?.trim() || '';
-    const currentRef = (liveTranscriptRef.current || '').trim();
+    const currentRef = (accumulatedFinalRef.current || liveTranscriptRef.current || '').trim();
+    // Gentle phrase cleanup only after user has finished speaking
     const resolvedText = deduplicateRepeatedPhrases(domVal || currentRef);
     if (resolvedText) {
+      accumulatedFinalRef.current = resolvedText;
       updateLiveTranscript(resolvedText);
     }
 

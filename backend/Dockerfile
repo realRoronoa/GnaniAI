@@ -2,12 +2,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for reportlab, psycopg2, ffmpeg
+# Install system dependencies for reportlab, psycopg2, ffmpeg, and Indic/Devanagari fonts
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     ffmpeg \
     curl \
+    fonts-noto-core \
+    fonts-indic \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

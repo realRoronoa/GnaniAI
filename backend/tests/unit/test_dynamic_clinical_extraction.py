@@ -311,3 +311,16 @@ async def test_user_exact_hindi_consultation_extraction_and_reports():
     assert "regarding my healt" not in pat_md
 
 
+@pytest.mark.asyncio
+async def test_doctors_token_does_not_trigger_ors():
+    """Verifies that 'doctors' does not falsely match 'ors' keyword and prescribe Oral Rehydration Salts."""
+    transcript = "hello doctors not able to see your sleep well feeling exhausted"
+    extractor = MockClinicalExtractionProvider()
+    result = await extractor.extract_clinical_data(transcript, [], is_sample_demo=False)
+
+    med_names = [m.medication_name for m in result.medications]
+    assert "Oral Rehydration Salts (ORS)" not in med_names
+    assert not any("ORS" in m for m in med_names)
+
+
+

@@ -151,8 +151,8 @@ async def upload_consultation_audio(
         select(UsageRecord).where(
             UsageRecord.organization_id == org_id,
             UsageRecord.period_month == month_str,
-        )
-    ).scalar_one_or_none()
+        ).order_by(UsageRecord.created_at.desc())
+    ).scalars().first()
     if usage:
         usage.audio_storage_bytes_used += len(data)
 

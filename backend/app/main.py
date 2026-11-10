@@ -28,12 +28,11 @@ logger = logging.getLogger("arogyascribe")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Startup and shutdown events handler: auto-provisions schema, ensures essential plans, and cleans mock data."""
+    """Startup and shutdown events handler: auto-provisions schema, ensures plans and demo accounts."""
     Base.metadata.create_all(bind=engine)
     try:
-        from scripts.seed_demo import seed_essentials, clean_mock_data
-        seed_essentials()
-        clean_mock_data()
+        from scripts.seed_demo import seed
+        seed()
     except Exception as e:
         logger.warning("Startup database initialization notice: %s", e)
     yield
@@ -127,27 +126,29 @@ async def health_check() -> dict[str, Any]:
 
 
 @app.get(
-    "/api/v1/health/ai-live-test",
+    "/api/v1/health/gnani-test",
     tags=["System"],
-    summary="Live Gnani AI verification test",
+    summary="Live Gnani AI verification test (STT + TTS)",
     status_code=status.HTTP_200_OK,
 )
 @app.get(
-    "/api/v1/health/gnani-test",
+    "/api/v1/health/ai-live-test",
     tags=["System"],
     summary="Live Gnani AI verification test (alias)",
     status_code=status.HTTP_200_OK,
 )
 async def gnani_live_diagnostic_test() -> dict[str, Any]:
-    """Sends 1 lightweight verification request to the configured Gnani STT endpoint and returns live metrics."""
-    import struct
+    """Sends 1 test STT call (2-second WAV) and 1 test TTS call ('नमस्ते') to api.vachana.ai."""
     import time
+    import uuid
+    from app.integrations.ai.gnani_providers import generate_silence_wav
 
     effective_key = settings.get_effective_gnani_key()
     has_key = bool(effective_key)
     masked_key = (effective_key[:6] + "..." + effective_key[-4:]) if len(effective_key) > 10 else ("***" if effective_key else "NOT_SET")
     base_url = (getattr(settings, "gnani_base_url", None) or "https://api.vachana.ai").rstrip("/")
-    endpoint = f"{base_url}/stt/v3"
+    stt_endpoint = f"{base_url}/stt/v3"
+    tts_endpoint = f"{base_url}/api/v1/tts/inference"
 
     res_data: dict[str, Any] = {
         "gnani_api_key_detected": has_key,
@@ -155,16 +156,22 @@ async def gnani_live_diagnostic_test() -> dict[str, Any]:
         "key_length": len(effective_key),
         "active_provider_mode": settings.AI_PROVIDER,
         "base_url": base_url,
-        "endpoint_called": endpoint,
-        "http_status_code": None,
-        "latency_ms": None,
-        "sent_headers": {
-            "X-API-Key-ID": masked_key,
-            "X-API-Key": masked_key,
-            "Authorization": f"Bearer {masked_key}",
+        "stt": {
+            "endpoint": stt_endpoint,
+            "http_status_code": None,
+            "latency_ms": None,
+            "success": False,
+            "response_body": None,
         },
-        "response_body": None,
-        "live_connection_success": False,
+        "tts": {
+            "endpoint": tts_endpoint,
+            "http_status_code": None,
+            "latency_ms": None,
+            "success": False,
+            "response_bytes_len": None,
+            "response_preview": None,
+        },
+        "all_checks_passed": False,
         "message": "",
     }
 
@@ -172,56 +179,77 @@ async def gnani_live_diagnostic_test() -> dict[str, Any]:
         res_data["message"] = "No active GNANI_API_KEY detected in environment variables. Set GNANI_API_KEY on Render."
         return res_data
 
-    # Generate minimal 0.1s 16kHz mono silence WAV (3,244 bytes)
-    sample_rate = 16000
-    num_samples = 1600
-    data_size = num_samples * 2
-    tiny_wav = (
-        b"RIFF"
-        + struct.pack("<I", 36 + data_size)
-        + b"WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00"
-        + struct.pack("<I", sample_rate)
-        + struct.pack("<I", sample_rate * 2)
-        + b"\x02\x00\x10\x00data"
-        + struct.pack("<I", data_size)
-        + (b"\x00" * data_size)
-    )
-
-    headers = {
+    # 1. Test STT with 2-second valid WAV
+    wav_bytes = generate_silence_wav(2.0)
+    stt_headers = {
         "X-API-Key-ID": effective_key,
-        "X-API-Key": effective_key,
-        "Authorization": f"Bearer {effective_key}",
-        "Accept": "application/json",
+        "X-API-Request-ID": str(uuid.uuid4()),
     }
-    files = {"audio_file": ("test_silence.wav", tiny_wav, "audio/wav")}
-    data = {
-        "model": "prisma-v3.0",
-        "language_code": "indic-auto",
-        "format": "transcribe",
-    }
+    stt_files = {"audio_file": ("diagnostic_silence.wav", wav_bytes, "audio/wav")}
+    stt_data = {"language_code": "hi-IN"}
 
     t0 = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.post(endpoint, headers=headers, files=files, data=data)
-            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
-            res_data["latency_ms"] = latency_ms
-            res_data["http_status_code"] = response.status_code
+            stt_resp = await client.post(stt_endpoint, headers=stt_headers, files=stt_files, data=stt_data)
+            stt_latency = round((time.perf_counter() - t0) * 1000, 2)
+            res_data["stt"]["latency_ms"] = stt_latency
+            res_data["stt"]["http_status_code"] = stt_resp.status_code
             try:
-                res_data["response_body"] = response.json()
+                res_data["stt"]["response_body"] = stt_resp.json()
             except Exception:
-                res_data["response_body"] = response.text[:300]
-
-            res_data["live_connection_success"] = response.status_code == 200
-            res_data["message"] = (
-                "Gnani STT API live verified successfully!"
-                if response.status_code == 200
-                else f"Gnani STT returned HTTP {response.status_code}"
-            )
+                res_data["stt"]["response_body"] = stt_resp.text[:300]
+            res_data["stt"]["success"] = stt_resp.status_code == 200
     except Exception as exc:
-        latency_ms = round((time.perf_counter() - t0) * 1000, 2)
-        res_data["latency_ms"] = latency_ms
-        res_data["message"] = f"Connection failed: {exc}"
+        res_data["stt"]["latency_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+        res_data["stt"]["response_body"] = f"Connection failed: {exc}"
+
+    # 2. Test TTS with "नमस्ते"
+    tts_headers = {
+        "Content-Type": "application/json",
+        "X-API-Key-ID": effective_key,
+    }
+    tts_payload = {
+        "text": "नमस्ते",
+        "voice": "Nalini",
+        "model": "timbre-v2.5",
+        "language": "hi-IN",
+        "speed": 1.0,
+        "audio_config": {
+            "sample_rate": 48000,
+            "num_channels": 1,
+            "sample_width": 2,
+            "encoding": "linear_pcm",
+            "container": "wav",
+        },
+    }
+
+    t1 = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            tts_resp = await client.post(tts_endpoint, headers=tts_headers, json=tts_payload)
+            tts_latency = round((time.perf_counter() - t1) * 1000, 2)
+            res_data["tts"]["latency_ms"] = tts_latency
+            res_data["tts"]["http_status_code"] = tts_resp.status_code
+            res_data["tts"]["response_bytes_len"] = len(tts_resp.content)
+            res_data["tts"]["success"] = tts_resp.status_code == 200
+            if tts_resp.status_code >= 400:
+                try:
+                    res_data["tts"]["response_preview"] = tts_resp.json()
+                except Exception:
+                    res_data["tts"]["response_preview"] = tts_resp.text[:300]
+            else:
+                res_data["tts"]["response_preview"] = f"Received {len(tts_resp.content)} bytes audio/wav"
+    except Exception as exc:
+        res_data["tts"]["latency_ms"] = round((time.perf_counter() - t1) * 1000, 2)
+        res_data["tts"]["response_preview"] = f"Connection failed: {exc}"
+
+    res_data["all_checks_passed"] = bool(res_data["stt"]["success"] and res_data["tts"]["success"])
+    res_data["message"] = (
+        "Gnani STT & TTS live endpoints both verified successfully!"
+        if res_data["all_checks_passed"]
+        else f"STT HTTP {res_data['stt']['http_status_code']}, TTS HTTP {res_data['tts']['http_status_code']}"
+    )
 
     return res_data
 

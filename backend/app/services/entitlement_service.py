@@ -29,7 +29,7 @@ class EntitlementService:
             .where(Subscription.organization_id == organization_id)
             .order_by(Subscription.created_at.desc())
         )
-        return db.execute(stmt).scalar_one_or_none()
+        return db.execute(stmt).scalars().first()
 
     @staticmethod
     def ensure_active_subscription_write_allowed(db: Session, organization_id: uuid.UUID) -> Subscription:

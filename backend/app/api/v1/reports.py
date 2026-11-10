@@ -560,7 +560,7 @@ def mark_delivery_shared(
             PdfAsset.consultation_id == consultation_id,
             PdfAsset.pdf_type == PdfType.PATIENT_SUMMARY_PDF,
         ).order_by(PdfAsset.generated_at.desc())
-    ).scalar_one_or_none()
+    ).scalars().first()
 
     grant = SecureShareGrant(
         organization_id=org_id,

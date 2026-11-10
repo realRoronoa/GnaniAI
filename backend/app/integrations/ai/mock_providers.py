@@ -451,22 +451,22 @@ class MockClinicalExtractionProvider:
         # Extract Medications or Therapy Instructions (Hindi & English)
         # -------------------------------------------------------------
         med_keywords = [
-            (r"(पेरासिटामोल|पारासिटामोल|paracetamol|dolo|calpol|crocin)", "Paracetamol", "650mg", "1 tablet", "Three times daily after food", "3 days"),
-            (r"(एजिथ्रोमाइसिन|azithromycin)", "Azithromycin", "500mg", "1 tablet", "Once daily", "3 days"),
-            (r"(अमोक्सिसिलिन|amoxicillin|augmentin|mox)", "Amoxicillin-Clavulanate", "625mg", "1 tablet", "Twice daily after meals", "5 days"),
-            (r"(पैंटोप्राजोल|pantoprazole|pan-d|pan\s*40|pantocid|omeprazole)", "Pantoprazole", "40mg", "1 tablet", "Once daily before breakfast", "5 days"),
-            (r"(सिट्रिजिन|cetirizine|montair|zyrtec|allegra)", "Cetirizine", "10mg", "1 tablet", "Once at bedtime", "5 days"),
-            (r"(इबुप्रोफेन|ibuprofen|combiflam|brufen)", "Ibuprofen", "400mg", "1 tablet", "Twice daily with meals", "3 days"),
-            (r"(ओआरएस|ors|oral\s*rehydration)", "Oral Rehydration Salts (ORS)", "1 Sachet", "1 sachet in 1L water", "Sip frequently", "3 days"),
-            (r"(मेटफॉर्मिन|metformin|glycomet)", "Metformin", "500mg", "1 tablet", "With evening meal", "Ongoing"),
-            (r"(atorvastatin|atorva)", "Atorvastatin", "10mg", "1 tablet", "At bedtime", "Ongoing"),
-            (r"(telmisartan|telma)", "Telmisartan", "40mg", "1 tablet", "Morning daily", "Ongoing"),
-            (r"(cough\s*syrup|syrup|koflet)", "Expectorant Cough Syrup", "10ml", "Two teaspoonfuls", "Three times daily", "5 days"),
-            (r"(mindfulness|meditation)", "Mindfulness & Relaxation Practice", "Therapeutic", "15-20 mins daily", "Daily morning/evening", "2 weeks"),
-            (r"(physiotherapy|exercise|stretching)", "Targeted Physiotherapy & Stretching", "Rehabilitative", "20-30 mins session", "Twice daily", "2 weeks"),
-            (r"(counseling|therapy\s*session|therapy)", "Cognitive & Supportive Therapy", "Clinical", "1 session / week", "Weekly review", "2 weeks"),
-            (r"(rest|bed\s*rest|aaram)", "Therapeutic Rest & Activity Modification", "Supportive", "Full rest", "As needed", "3-5 days"),
-            (r"(sleep|sleep\s*schedule|neend)", "Sleep Hygiene Optimization", "Behavioral", "7-8 hours restful sleep", "Nightly routine", "Ongoing"),
+            (r"(?:पेरासिटामोल|पारासिटामोल|\b(?:paracetamol|dolo|calpol|crocin)\b)", "Paracetamol", "650mg", "1 tablet", "Three times daily after food", "3 days"),
+            (r"(?:एजिथ्रोमाइसिन|\b(?:azithromycin)\b)", "Azithromycin", "500mg", "1 tablet", "Once daily", "3 days"),
+            (r"(?:अमोक्सिसिलिन|\b(?:amoxicillin|augmentin|mox)\b)", "Amoxicillin-Clavulanate", "625mg", "1 tablet", "Twice daily after meals", "5 days"),
+            (r"(?:पैंटोप्राजोल|\b(?:pantoprazole|pan-d|pan\s*40|pantocid|omeprazole)\b)", "Pantoprazole", "40mg", "1 tablet", "Once daily before breakfast", "5 days"),
+            (r"(?:सिट्रिजिन|\b(?:cetirizine|montair|zyrtec|allegra)\b)", "Cetirizine", "10mg", "1 tablet", "Once at bedtime", "5 days"),
+            (r"(?:इबुप्रोफेन|\b(?:ibuprofen|combiflam|brufen)\b)", "Ibuprofen", "400mg", "1 tablet", "Twice daily with meals", "3 days"),
+            (r"(?:ओआरएस|\b(?:ors|oral\s*rehydration)\b)", "Oral Rehydration Salts (ORS)", "1 Sachet", "1 sachet in 1L water", "Sip frequently", "3 days"),
+            (r"(?:मेटफॉर्मिन|\b(?:metformin|glycomet)\b)", "Metformin", "500mg", "1 tablet", "With evening meal", "Ongoing"),
+            (r"\b(?:atorvastatin|atorva)\b", "Atorvastatin", "10mg", "1 tablet", "At bedtime", "Ongoing"),
+            (r"\b(?:telmisartan|telma)\b", "Telmisartan", "40mg", "1 tablet", "Morning daily", "Ongoing"),
+            (r"(?:कफ\s*सिरप|\b(?:cough\s*syrup|syrup|koflet)\b)", "Expectorant Cough Syrup", "10ml", "Two teaspoonfuls", "Three times daily", "5 days"),
+            (r"(?:माइंडफुलनेस|\b(?:mindfulness|meditation)\b)", "Mindfulness & Relaxation Practice", "Therapeutic", "15-20 mins daily", "Daily morning/evening", "2 weeks"),
+            (r"(?:फिजियोथेरेपी|\b(?:physiotherapy|exercise|stretching)\b)", "Targeted Physiotherapy & Stretching", "Rehabilitative", "20-30 mins session", "Twice daily", "2 weeks"),
+            (r"(?:काउंसलिंग|\b(?:counseling|therapy\s*session|therapy)\b)", "Cognitive & Supportive Therapy", "Clinical", "1 session / week", "Weekly review", "2 weeks"),
+            (r"(?:आराम|\b(?:rest|bed\s*rest|aaram)\b)", "Therapeutic Rest & Activity Modification", "Supportive", "Full rest", "As needed", "3-5 days"),
+            (r"(?:नींद|\b(?:sleep|sleep\s*schedule|neend)\b)", "Sleep Hygiene Optimization", "Behavioral", "7-8 hours restful sleep", "Nightly routine", "Ongoing"),
         ]
 
         seen_meds = set()
@@ -501,8 +501,9 @@ class MockClinicalExtractionProvider:
                         )
                     )
 
-        # If doctor mentioned "two tablets" / "second tablet" and only one drug recognized
-        if has_multiple_tabs and len(medications) == 1:
+        # If doctor mentioned "two tablets" / "second tablet" and less than 2 oral tablets recognized
+        oral_meds = [m for m in medications if m.route == "ORAL" or "tablet" in m.dosage.lower()]
+        if has_multiple_tabs and len(oral_meds) < 2:
             medications.append(
                 ExtractedMedicationInstruction(
                     medication_name="Prescribed Oral Tablet (As directed by physician)",

@@ -54,8 +54,8 @@ class AppointmentService:
                 OrganizationMembership.user_id == data.doctor_user_id,
                 OrganizationMembership.role == UserRole.DOCTOR,
                 OrganizationMembership.is_active == True,
-            )
-        ).scalar_one_or_none()
+            ).order_by(OrganizationMembership.created_at.desc())
+        ).scalars().first()
 
         if not doc_mem:
             raise HTTPException(
@@ -230,8 +230,8 @@ class AppointmentService:
                 OrganizationMembership.user_id == new_doctor_user_id,
                 OrganizationMembership.role == UserRole.DOCTOR,
                 OrganizationMembership.is_active == True,
-            )
-        ).scalar_one_or_none()
+            ).order_by(OrganizationMembership.created_at.desc())
+        ).scalars().first()
 
         if not doc_mem:
             raise HTTPException(
@@ -365,8 +365,8 @@ class AppointmentService:
             doc_profile = None
             if doc_id:
                 doc_profile = db.execute(
-                    select(DoctorProfile).where(DoctorProfile.user_id == doc_id)
-                ).scalar_one_or_none()
+                    select(DoctorProfile).where(DoctorProfile.user_id == doc_id).order_by(DoctorProfile.created_at.desc())
+                ).scalars().first()
 
             waiting_count = sum(1 for a in apps if enum_val(a.status) in ("WAITING", "ARRIVED"))
 

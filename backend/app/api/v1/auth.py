@@ -50,8 +50,8 @@ def login(request: LoginRequest, db: Annotated[Session, Depends(get_db)]) -> Tok
             select(OrganizationMembership).where(
                 OrganizationMembership.user_id == user.id,
                 OrganizationMembership.is_active == True,
-            )
-        ).scalar_one_or_none()
+            ).order_by(OrganizationMembership.created_at.desc())
+        ).scalars().first()
 
         if not membership:
             raise HTTPException(
@@ -143,8 +143,8 @@ def refresh_token(request: RefreshTokenRequest, db: Annotated[Session, Depends(g
             select(OrganizationMembership).where(
                 OrganizationMembership.user_id == user.id,
                 OrganizationMembership.is_active == True,
-            )
-        ).scalar_one_or_none()
+            ).order_by(OrganizationMembership.created_at.desc())
+        ).scalars().first()
 
         if membership:
             role = membership.role
@@ -221,8 +221,8 @@ def get_me(
 
         if role == UserRole.DOCTOR:
             doc = db.execute(
-                select(DoctorProfile).where(DoctorProfile.user_id == current_user.id)
-            ).scalar_one_or_none()
+                select(DoctorProfile).where(DoctorProfile.user_id == current_user.id).order_by(DoctorProfile.created_at.desc())
+            ).scalars().first()
             if doc:
                 doctor_data = {
                     "specialization": doc.specialization,
@@ -233,8 +233,8 @@ def get_me(
                 }
         elif role == UserRole.RECEPTIONIST:
             rec = db.execute(
-                select(ReceptionistProfile).where(ReceptionistProfile.user_id == current_user.id)
-            ).scalar_one_or_none()
+                select(ReceptionistProfile).where(ReceptionistProfile.user_id == current_user.id).order_by(ReceptionistProfile.created_at.desc())
+            ).scalars().first()
             if rec:
                 receptionist_data = {
                     "desk_identifier": rec.desk_identifier,

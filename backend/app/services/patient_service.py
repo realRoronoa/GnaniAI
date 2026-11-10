@@ -256,8 +256,8 @@ class PatientService:
                     Report.consultation_id == c.id,
                     Report.report_type == ReportType.DOCTOR_CLINICAL,
                     Report.current_status == ReportStatus.APPROVED,
-                )
-            ).scalar_one_or_none()
+                ).order_by(Report.created_at.desc())
+            ).scalars().first()
 
             doc_name = c.doctor.full_name if c.doctor else "Attending Clinician"
 

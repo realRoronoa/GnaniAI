@@ -21,13 +21,19 @@ def _init_unicode_font() -> tuple[str, str]:
     except Exception:
         pass
 
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    bundled_devanagari = os.path.join(base_dir, "assets", "fonts", "NotoSansDevanagari-Regular.ttf")
+
     candidates = [
+        (bundled_devanagari, None, bundled_devanagari, None),
         ("C:/Windows/Fonts/Nirmala.ttc", 0, "C:/Windows/Fonts/Nirmala.ttc", 1),
         ("C:/Windows/Fonts/nirmala.ttc", 0, "C:/Windows/Fonts/nirmala.ttc", 1),
+        ("/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf", None, "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf", None),
+        ("/usr/share/fonts/truetype/lohit-devanagari/Lohit-Devanagari.ttf", None, "/usr/share/fonts/truetype/lohit-devanagari/Lohit-Devanagari.ttf", None),
+        ("/usr/share/fonts/truetype/fonts-deva-extra/gargi.ttf", None, "/usr/share/fonts/truetype/fonts-deva-extra/gargi.ttf", None),
         ("C:/Windows/Fonts/mangal.ttf", None, "C:/Windows/Fonts/mangalb.ttf", None),
         ("C:/Windows/Fonts/arial.ttf", None, "C:/Windows/Fonts/arialbd.ttf", None),
         ("C:/Windows/Fonts/segoeui.ttf", None, "C:/Windows/Fonts/segoeuib.ttf", None),
-        ("/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf", None, "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf", None),
         ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", None, "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", None),
         ("/usr/share/fonts/truetype/freefont/FreeSans.ttf", None, "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf", None),
     ]
@@ -178,6 +184,8 @@ class PDFService:
         # Body: Process markdown lines into styled paragraphs
         for line in content_markdown.splitlines():
             line_str = line.strip()
+            # Strip markdown callout tags like `> [!NOTE]` or `> [!TIP]` or `>`
+            line_str = re.sub(r"^>\s*(\[!.*?\])?\s*", "", line_str).strip()
             if not line_str:
                 story.append(Spacer(1, 4))
             elif line_str.startswith("#"):

@@ -92,9 +92,9 @@ def get_current_membership(
             OrganizationMembership.user_id == current_user.id,
             OrganizationMembership.is_active == True,
         )
-        .limit(1)
+        .order_by(OrganizationMembership.created_at.desc())
     )
-    membership = db.execute(stmt).scalar_one_or_none()
+    membership = db.execute(stmt).scalars().first()
 
     if not membership:
         raise HTTPException(

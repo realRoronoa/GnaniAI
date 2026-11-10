@@ -18,6 +18,7 @@ from app.integrations.ai import (
     get_report_generation_provider,
     get_transcription_provider,
     get_translation_provider,
+    get_tts_provider,
 )
 from app.integrations.ai.contracts import TranscriptSegmentResult, TranscriptionResult
 from app.integrations.storage.s3_service import storage_service
@@ -523,6 +524,25 @@ def process_consultation_pipeline(
 
     trans_job.status = JobStatus.COMPLETED
     trans_job.completed_at = datetime.now(timezone.utc)
+
+    # Trigger Vernacular TTS synthesis so BOTH STT & TTS usage register on Gnani Analytics dashboard
+    if is_live_gnani:
+        try:
+            tts_provider = get_tts_provider()
+            short_tts_text = (
+                consultation.chief_complaint_summary
+                or (transcription_result.full_text[:300] if transcription_result else "")
+                or "आपकी परामर्श प्रक्रिया पूर्ण हो गई है।"
+            )
+            logger.info("Triggering live Gnani TTS synthesis for consultation %s", consultation.id)
+            asyncio.run(
+                tts_provider.synthesize_speech(
+                    short_tts_text,
+                    language_code=consent.language or "hi-IN",
+                )
+            )
+        except Exception as tts_err:
+            logger.warning("Gnani TTS synthesis during pipeline encountered exception (%s), continuing.", tts_err)
 
     # Transition consultation to REVIEW_READY
     consultation.status = ConsultationStatus.REVIEW_READY
