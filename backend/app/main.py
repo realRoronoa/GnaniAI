@@ -114,8 +114,8 @@ async def health_check() -> dict[str, Any]:
     return {
         "status": "healthy",
         "service": settings.app_name,
-        "version": "0.1.6",
-        "build": "official-gnani-wav-direct",
+        "version": "0.1.7",
+        "build": "strict-zero-mock-v1.7",
         "environment": settings.app_env,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "ai_provider_mode": settings.AI_PROVIDER,
@@ -264,6 +264,46 @@ def wipe_database_endpoint() -> dict[str, Any]:
     """
     from scripts.seed_demo import wipe_all_tenant_data
     return wipe_all_tenant_data()
+
+
+@app.post("/api/v1/health/wipe-all-consultations")
+def wipe_all_consultations_endpoint() -> dict[str, Any]:
+    """Maintenance endpoint: clears all consultations, audio, transcripts, facts,
+    medications, and reports, while strictly preserving Organizations, Clinics, and User accounts.
+    """
+    from sqlalchemy import delete
+    from app.db.session import SessionLocal
+    from app.models.clinical_reports import (
+        ClinicalFact,
+        ClinicalFactEvidence,
+        MedicationInstruction,
+        PdfAsset,
+        Report,
+        ReportApproval,
+        ReportVersion,
+    )
+    from app.models.consultations_audio import (
+        AudioAsset,
+        ConsentRecord,
+        Consultation,
+        TranscriptSegment,
+        TranscriptVersion,
+    )
+    with SessionLocal() as db:
+        db.execute(delete(PdfAsset))
+        db.execute(delete(ReportApproval))
+        db.execute(delete(ReportVersion))
+        db.execute(delete(Report))
+        db.execute(delete(MedicationInstruction))
+        db.execute(delete(ClinicalFactEvidence))
+        db.execute(delete(ClinicalFact))
+        db.execute(delete(TranscriptSegment))
+        db.execute(delete(TranscriptVersion))
+        db.execute(delete(AudioAsset))
+        db.execute(delete(ConsentRecord))
+        db.execute(delete(Consultation))
+        db.commit()
+    return {"message": "All consultation encounters wiped clean. Doctor and Clinic accounts preserved."}
 
 
 @app.get("/api/v1/health/db-status")

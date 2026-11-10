@@ -409,7 +409,9 @@ class GnaniTextToSpeechProvider:
 
         # Exact official request schema from https://docs.gnani.ai/api/TTS/tts-inference
         # Keep text <= 400 chars for fast synthesis & low credit usage
-        clean_text = text.strip()[:400] if text else "नमस्ते"
+        clean_text = text.strip()[:400] if text else ""
+        if not clean_text:
+            return b""
         payload = {
             "text": clean_text,
             "voice": voice_id or getattr(settings, "gnani_tts_voice", "Nalini"),
