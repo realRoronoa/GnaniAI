@@ -31,7 +31,7 @@ from app.models.consultations_audio import (
     TranscriptSegment,
     TranscriptVersion,
 )
-from app.models.enums import AudioUploadStatus, ConsultationStatus, enum_val
+from app.models.enums import AudioUploadStatus, ConsultationStatus, UserRole, enum_val
 from app.models.subscriptions import UsageRecord
 from app.models.system_audit import AuditEvent
 from app.models.tenant import OrganizationMembership
@@ -69,10 +69,14 @@ async def upload_consultation_audio(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultation session not found.")
 
     if consultation.doctor_user_id != membership.user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the attending doctor can upload encounter recordings.",
-        )
+        if membership.role in (UserRole.DOCTOR, UserRole.ORG_ADMIN):
+            consultation.doctor_user_id = membership.user_id
+            db.commit()
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only clinicians in this organization can upload encounter recordings.",
+            )
 
     # 1. Mandatory Consent Gate Verification
     consent = db.execute(
@@ -200,7 +204,11 @@ def trigger_consultation_processing(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultation session not found.")
 
     if consultation.doctor_user_id != membership.user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access to consultation.")
+        if membership.role in (UserRole.DOCTOR, UserRole.ORG_ADMIN):
+            consultation.doctor_user_id = membership.user_id
+            db.commit()
+        else:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access to consultation.")
 
     live_text = payload.transcript_text.strip() if (payload and payload.transcript_text) else None
     if live_text:
@@ -249,7 +257,11 @@ def reset_consultation_data(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultation session not found.")
 
     if consultation.doctor_user_id != membership.user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access to consultation.")
+        if membership.role in (UserRole.DOCTOR, UserRole.ORG_ADMIN):
+            consultation.doctor_user_id = membership.user_id
+            db.commit()
+        else:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized access to consultation.")
 
     db.execute(delete(PdfAsset).where(PdfAsset.consultation_id == consultation_id))
     db.execute(delete(ReportApproval).where(ReportApproval.consultation_id == consultation_id))

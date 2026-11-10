@@ -197,10 +197,20 @@ class ConsultationService:
             )
 
         if appointment.doctor_user_id != doctor_user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Appointment is assigned to another clinician.",
-            )
+            user_mem = db.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.organization_id == organization_id,
+                    OrganizationMembership.user_id == doctor_user_id,
+                )
+            ).scalars().first()
+            if user_mem and user_mem.role in (UserRole.DOCTOR, UserRole.ORG_ADMIN):
+                appointment.doctor_user_id = doctor_user_id
+                db.flush()
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Appointment is assigned to another clinician.",
+                )
 
         # Resume existing consultation if present
         existing_cons = db.execute(

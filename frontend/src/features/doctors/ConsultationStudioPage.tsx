@@ -697,8 +697,14 @@ export const ConsultationStudioPage: React.FC = () => {
         formData.append('transcript_text', textToSend);
       }
 
+      const token = localStorage.getItem('access_token');
+      const reqHeaders: Record<string, string> = {};
+      if (token) {
+        reqHeaders['Authorization'] = `Bearer ${token}`;
+      }
+      // Note: Never hardcode 'Content-Type': 'multipart/form-data' so browser sets exact boundary
       await api.post(`/consultations/${consultationId}/audio`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: reqHeaders,
       });
 
       setStatusBanner({ text: 'Audio uploaded successfully! Running Gnani Indic Speech & Clinical AI...', type: 'ok' });
@@ -715,9 +721,18 @@ export const ConsultationStudioPage: React.FC = () => {
     try {
       const domVal = textareaRef.current?.value?.trim() || '';
       const textToSend = (transcriptText !== undefined ? transcriptText : (domVal || liveTranscriptRef.current)).trim();
-      await api.post(`/consultations/${consultationId}/process`, {
-        transcript_text: textToSend || null,
-      });
+      const token = localStorage.getItem('access_token');
+      const reqHeaders: Record<string, string> = {};
+      if (token) {
+        reqHeaders['Authorization'] = `Bearer ${token}`;
+      }
+      await api.post(
+        `/consultations/${consultationId}/process`,
+        {
+          transcript_text: textToSend || null,
+        },
+        { headers: reqHeaders }
+      );
       setStatusBanner({ text: 'AI processing completed! Transcript, Clinical Facts, and Draft Reports generated.', type: 'ok' });
       setRecState('IDLE');
       await loadConsultationData();

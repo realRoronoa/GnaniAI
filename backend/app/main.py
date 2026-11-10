@@ -114,8 +114,8 @@ async def health_check() -> dict[str, Any]:
     return {
         "status": "healthy",
         "service": settings.app_name,
-        "version": "0.1.7",
-        "build": "strict-zero-mock-v1.7",
+        "version": "0.1.8",
+        "build": "v0.1.8-runtime-hardened",
         "environment": settings.app_env,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "ai_provider_mode": settings.AI_PROVIDER,

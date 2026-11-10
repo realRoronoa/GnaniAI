@@ -40,25 +40,9 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/login')) {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        })
-          .then((token) => {
-            if (originalRequest.headers && token) {
-              originalRequest.headers.Authorization = `Bearer ${token}`;
-            }
-            return api(originalRequest);
-          })
-          .catch((err) => Promise.reject(err));
-      }
-
-      originalRequest._retry = true;
-      isRefreshing = true;
-
-      const refreshToken = localStorage.getItem('refresh_token');
-      if (!refreshToken) {
+    if (error.response?.status === 401) {
+      if (originalRequest?._retry) {
+        // Retry failed with 401; user session has completely expired
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
         localStorage.removeItem('user');
@@ -67,6 +51,34 @@ api.interceptors.response.use(
         }
         return Promise.reject(error);
       }
+
+      if (!originalRequest?.url?.includes('/auth/login')) {
+        if (isRefreshing) {
+          return new Promise((resolve, reject) => {
+            failedQueue.push({ resolve, reject });
+          })
+            .then((token) => {
+              if (originalRequest.headers && token) {
+                originalRequest.headers.Authorization = `Bearer ${token}`;
+              }
+              return api(originalRequest);
+            })
+            .catch((err) => Promise.reject(err));
+        }
+
+        originalRequest._retry = true;
+        isRefreshing = true;
+
+        const refreshToken = localStorage.getItem('refresh_token');
+        if (!refreshToken) {
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+          localStorage.removeItem('user');
+          if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
+            window.location.href = '/login';
+          }
+          return Promise.reject(error);
+        }
 
       try {
         const refreshUrl = (((import.meta as any).env?.VITE_API_BASE_URL || '') + '/api/v1/auth/refresh');
@@ -102,9 +114,10 @@ api.interceptors.response.use(
         isRefreshing = false;
       }
     }
-
-    return Promise.reject(error);
   }
+
+  return Promise.reject(error);
+}
 );
 
 export const getErrorMessage = (error: unknown): string => {

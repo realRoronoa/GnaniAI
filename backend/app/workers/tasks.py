@@ -504,13 +504,14 @@ def process_consultation_pipeline(
     db.add(doc_ver)
 
     # 2. Patient Summary Report
+    pat_lang = (patient.preferred_language if (patient and patient.preferred_language) else "hi-IN")
     pat_report = Report(
         organization_id=org_id,
         consultation_id=consultation.id,
         report_type=ReportType.PATIENT_SUMMARY,
         current_status=ReportStatus.AI_GENERATED_DRAFT,
         current_version_number=1,
-        target_language=patient.preferred_language if patient else "en-IN",
+        target_language=pat_lang,
     )
     db.add(pat_report)
     db.flush()
@@ -545,7 +546,7 @@ def process_consultation_pipeline(
     db.add(trans_job)
     db.flush()
 
-    pref_lang = patient.preferred_language if patient else "en-IN"
+    pref_lang = (patient.preferred_language if (patient and patient.preferred_language) else "hi-IN")
     if pref_lang != "en-IN":
         translator = get_translation_provider()
         trans_md, trans_json = asyncio.run(
@@ -575,7 +576,7 @@ def process_consultation_pipeline(
             asyncio.run(
                 tts_provider.synthesize_speech(
                     short_tts_text,
-                    language_code=consent.language or "hi-IN",
+                    language_code=getattr(consent, "language", None) or "hi-IN",
                 )
             )
         except Exception as tts_err:

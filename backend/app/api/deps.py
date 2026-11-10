@@ -148,11 +148,11 @@ def require_receptionist(
 def require_doctor(
     membership: Annotated[OrganizationMembership, Depends(get_current_membership)],
 ) -> OrganizationMembership:
-    """Ensures caller has DOCTOR role."""
-    if membership.role != UserRole.DOCTOR:
+    """Ensures caller has DOCTOR or ORG_ADMIN clinical privileges."""
+    if membership.role not in (UserRole.DOCTOR, UserRole.ORG_ADMIN):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Doctor privileges required.",
+            detail="Doctor or Organization Administrator privileges required.",
         )
     return membership
 
