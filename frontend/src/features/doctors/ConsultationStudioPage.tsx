@@ -335,6 +335,16 @@ export const ConsultationStudioPage: React.FC = () => {
       ]);
 
       const consData = consRes.data;
+      if (!consData) {
+        setStatusBanner({
+          text: 'This encounter ID was not found or was deleted during a database reset. Please click "Back to Dashboard" to open your active consultation.',
+          type: 'warn',
+        });
+      } else if (consData.status === 'REVIEW_READY' || consData.status === 'SIGNED_OFF') {
+        // Automatically advance to Stage 2: Transcript review if encounter is already processed
+        setActiveStage((prev) => (prev === 0 ? 1 : prev));
+      }
+
       setConsultation(consData);
       setConsent(consData?.consent || null);
       setTranscriptData(transRes.data);
